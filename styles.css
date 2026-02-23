@@ -66,20 +66,32 @@ h2 {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  margin-bottom: 0;
 }
 
 .card > h2::after {
-  content: "−";
+  content: "▲";
   color: var(--muted);
-  font-size: 18px;
+  font-size: 12px;
+  transition: transform 0.3s ease;
 }
 
 .card.collapsed > h2::after {
-  content: "+";
+  transform: rotate(180deg);
 }
 
-.card.collapsed > *:not(h2) {
-  display: none;
+.card-body {
+  overflow: hidden;
+  max-height: 3000px;
+  opacity: 1;
+  transition: max-height 0.4s ease, opacity 0.3s ease, margin 0.3s ease;
+  margin-top: 12px;
+}
+
+.card.collapsed .card-body {
+  max-height: 0;
+  opacity: 0;
+  margin-top: 0;
 }
 
 .grid {
@@ -180,6 +192,13 @@ button:hover {
 .preset-btn {
   padding: 6px 10px;
   font-size: 13px;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.preset-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
 }
 
 .preview-wrap {
@@ -270,7 +289,7 @@ code {
   }
 
   .card > h2::after {
-    font-size: 16px;
+    font-size: 11px;
   }
 
   table {
