@@ -43,6 +43,13 @@ const els = {
   calcSingleBtn: document.getElementById("calcSingleBtn"),
   singleOutput: document.getElementById("singleOutput"),
   singlePreview: document.getElementById("singlePreview"),
+  singleResultPanel: document.getElementById("singleResultPanel"),
+  resArea: document.getElementById("resArea"),
+  resHeff: document.getElementById("resHeff"),
+  resRI: document.getElementById("resRI"),
+  resU: document.getElementById("resU"),
+  resCount: document.getElementById("resCount"),
+  resNote: document.getElementById("resNote"),
 
   bulkInput: document.getElementById("bulkInput"),
   calcBulkBtn: document.getElementById("calcBulkBtn"),
@@ -54,7 +61,9 @@ const els = {
   downloadLispBtn: document.getElementById("downloadLispBtn"),
   lispOutput: document.getElementById("lispOutput"),
 
+  cadDropZone: document.getElementById("cadDropZone"),
   cadFile: document.getElementById("cadFile"),
+  cadFileName: document.getElementById("cadFileName"),
   cadUnit: document.getElementById("cadUnit"),
   cadMinArea: document.getElementById("cadMinArea"),
   cadMaxArea: document.getElementById("cadMaxArea"),
@@ -71,9 +80,11 @@ const els = {
   cadPlacedTotal: document.getElementById("cadPlacedTotal"),
 
   ksSummary: document.getElementById("ksSummary"),
+  scrollTopBtn: document.getElementById("scrollTopBtn"),
 };
 
 const presetButtons = Array.from(document.querySelectorAll(".preset-btn"));
+const navPills = Array.from(document.querySelectorAll(".pill"));
 let bulkResults = [];
 
 function toNum(value, fallback = 0) {
@@ -422,8 +433,25 @@ function drawSinglePreview(widthMm, heightMm, count) {
   const h = canvas.height;
   ctx.clearRect(0, 0, w, h);
 
-  ctx.fillStyle = "#070c1a";
+  // background
+  ctx.fillStyle = "#060b18";
   ctx.fillRect(0, 0, w, h);
+
+  // subtle grid
+  ctx.strokeStyle = "rgba(93,160,255,0.04)";
+  ctx.lineWidth = 0.5;
+  for (let gx = 0; gx < w; gx += 24) {
+    ctx.beginPath();
+    ctx.moveTo(gx, 0);
+    ctx.lineTo(gx, h);
+    ctx.stroke();
+  }
+  for (let gy = 0; gy < h; gy += 24) {
+    ctx.beginPath();
+    ctx.moveTo(0, gy);
+    ctx.lineTo(w, gy);
+    ctx.stroke();
+  }
 
   const margin = 24;
   const drawW = w - margin * 2;
@@ -440,64 +468,87 @@ function drawSinglePreview(widthMm, heightMm, count) {
   const ox = (w - roomW) / 2;
   const oy = (h - roomH) / 2;
 
-  ctx.strokeStyle = "#90b8ff";
+  // room fill + border
+  ctx.fillStyle = "rgba(93,160,255,0.03)";
+  ctx.fillRect(ox, oy, roomW, roomH);
+  ctx.strokeStyle = "#4080cc";
   ctx.lineWidth = 2;
   ctx.strokeRect(ox, oy, roomW, roomH);
 
-  // room dimensions
+  // dimensions
   ctx.fillStyle = "#6688bb";
-  ctx.font = "11px sans-serif";
+  ctx.font = "12px sans-serif";
   ctx.textAlign = "center";
-  ctx.fillText(`${(widthMm / 1000).toFixed(1)}m`, ox + roomW / 2, oy - 6);
+  ctx.fillText(`${(widthMm / 1000).toFixed(1)}m`, ox + roomW / 2, oy - 10);
   ctx.save();
-  ctx.translate(ox - 8, oy + roomH / 2);
+  ctx.translate(ox - 14, oy + roomH / 2);
   ctx.rotate(-Math.PI / 2);
   ctx.fillText(`${(heightMm / 1000).toFixed(1)}m`, 0, 0);
   ctx.restore();
   ctx.textAlign = "left";
 
-  const cols = Math.max(1, Math.round(Math.sqrt(count * ratio)));
-  const rows = Math.max(1, Math.round(count / cols));
+  if (count <= 0) return;
 
+  const cols = Math.max(1, Math.round(Math.sqrt(count * ratio)));
+  const rows = Math.max(1, Math.ceil(count / cols));
+
+  // keep lights away from walls
   const insetX = roomW * 0.15;
   const insetY = roomH * 0.15;
   const innerW = Math.max(0, roomW - insetX * 2);
   const innerH = Math.max(0, roomH - insetY * 2);
-
   const dx = cols > 1 ? innerW / (cols - 1) : 0;
   const dy = rows > 1 ? innerH / (rows - 1) : 0;
-
-  ctx.fillStyle = "#ffd76a";
-  ctx.strokeStyle = "#ffd76a";
-  ctx.shadowColor = "#ffd76a";
-  ctx.shadowBlur = 6;
-  ctx.lineWidth = 1;
 
   let placed = 0;
   for (let i = 0; i < cols && placed < count; i += 1) {
     for (let j = 0; j < rows && placed < count; j += 1) {
-      const x = cols > 1 ? ox + insetX + i * dx : ox + roomW / 2;
-      const y = rows > 1 ? oy + insetY + j * dy : oy + roomH / 2;
+      const cx = cols > 1 ? ox + insetX + i * dx : ox + roomW / 2;
+      const cy = rows > 1 ? oy + insetY + j * dy : oy + roomH / 2;
 
+      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 20);
+      grad.addColorStop(0, "rgba(255,215,106,0.25)");
+      grad.addColorStop(1, "rgba(255,215,106,0)");
+      ctx.fillStyle = grad;
+      ctx.fillRect(cx - 20, cy - 20, 40, 40);
+
+      ctx.fillStyle = "#ffd76a";
       ctx.beginPath();
-      ctx.arc(x, y, 5, 0, Math.PI * 2);
+      ctx.arc(cx, cy, 5, 0, Math.PI * 2);
       ctx.fill();
 
+      ctx.strokeStyle = "rgba(255,215,106,0.6)";
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(x - 8, y);
-      ctx.lineTo(x + 8, y);
-      ctx.moveTo(x, y - 8);
-      ctx.lineTo(x, y + 8);
+      ctx.moveTo(cx - 9, cy);
+      ctx.lineTo(cx + 9, cy);
+      ctx.moveTo(cx, cy - 9);
+      ctx.lineTo(cx, cy + 9);
       ctx.stroke();
 
       placed += 1;
     }
   }
 
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = "#a8b3d9";
+  // legend
+  ctx.fillStyle = "rgba(15,23,48,0.75)";
+  const legendW = 190;
+  const legendH = 28;
+  const legendX = w - legendW - 12;
+  const legendY = 8;
+  ctx.fillRect(legendX, legendY, legendW, legendH);
+  ctx.strokeStyle = "rgba(93,160,255,0.2)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(legendX, legendY, legendW, legendH);
+
+  ctx.fillStyle = "#ffd76a";
+  ctx.beginPath();
+  ctx.arc(legendX + 14, legendY + 14, 4, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#b0c4ee";
   ctx.font = "12px sans-serif";
-  ctx.fillText(`미리보기: ${count}개 (${cols}×${rows} 배열)`, 12, 18);
+  ctx.fillText(`${count}개 (${cols}×${rows} 배열)`, legendX + 26, legendY + 18);
 }
 
 function calcSingle() {
@@ -515,6 +566,9 @@ function calcSingle() {
   const singleValid = singleInputs.map(validateNumberInput).every(Boolean);
   if (!singleValid) {
     els.singleOutput.textContent = "오류: 입력값을 확인해주세요.";
+    if (els.singleResultPanel) {
+      els.singleResultPanel.style.display = "none";
+    }
     drawSinglePreview(1, 1, 0);
     return;
   }
@@ -559,9 +613,25 @@ function calcSingle() {
       .join("\n");
 
     els.singleOutput.textContent = txt;
+
+    if (els.singleResultPanel) {
+      els.resArea.textContent = `${fmt(normalized.areaM2, 2)} ㎡`;
+      els.resHeff.textContent = `${fmt(result.hEff, 2)} m`;
+      els.resRI.textContent = fmt(result.ri, 2);
+      els.resU.textContent = fmt(result.u, 2);
+      els.resCount.textContent = `${result.recommendedCount.toLocaleString("ko-KR")}개`;
+      els.resNote.textContent = normalized.assumedSquare
+        ? "※ 가로/세로 없이 정사각형 가정"
+        : "";
+      els.singleResultPanel.style.display = "block";
+    }
+
     drawSinglePreview(normalized.widthMm, normalized.heightMm, result.recommendedCount);
   } catch (error) {
     els.singleOutput.textContent = `오류: ${error.message}`;
+    if (els.singleResultPanel) {
+      els.singleResultPanel.style.display = "none";
+    }
     drawSinglePreview(1, 1, 0);
   }
 }
@@ -1632,6 +1702,10 @@ function resetDefaults() {
   cadState.rooms = [];
   cadState.placements = [];
 
+  if (els.cadFileName) {
+    els.cadFileName.textContent = "선택된 파일 없음";
+  }
+
   renderCadRooms([]);
   setCadStatus("CAD 파일을 업로드한 뒤 ‘방 자동 인식’을 실행하세요.");
   validateAllInputs();
@@ -1659,6 +1733,82 @@ function setupCollapsibleCards() {
     heading.addEventListener("click", () => {
       card.classList.toggle("collapsed");
     });
+  });
+}
+
+function setupTopNavigation() {
+  navPills.forEach((pill) => {
+    pill.addEventListener("click", () => {
+      const targetId = pill.dataset.target;
+      const target = document.getElementById(targetId);
+      if (!target) return;
+
+      target.classList.remove("collapsed");
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+
+      navPills.forEach((p) => p.classList.remove("active"));
+      pill.classList.add("active");
+    });
+  });
+
+  const sections = Array.from(document.querySelectorAll("main .card[id]"));
+  const updateActiveByScroll = () => {
+    let current = "";
+    sections.forEach((section) => {
+      if (section.getBoundingClientRect().top <= 120) {
+        current = section.id;
+      }
+    });
+
+    if (!current && sections.length) {
+      current = sections[0].id;
+    }
+
+    navPills.forEach((pill) => {
+      pill.classList.toggle("active", pill.dataset.target === current);
+    });
+  };
+
+  window.addEventListener("scroll", updateActiveByScroll, { passive: true });
+  updateActiveByScroll();
+}
+
+function setupScrollTopButton() {
+  const btn = els.scrollTopBtn;
+  if (!btn) return;
+
+  const toggle = () => {
+    btn.classList.toggle("visible", window.scrollY > 400);
+  };
+
+  window.addEventListener("scroll", toggle, { passive: true });
+  toggle();
+
+  btn.addEventListener("click", () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+}
+
+function setupCadDropZone() {
+  const zone = els.cadDropZone;
+  if (!zone || !els.cadFile) return;
+
+  zone.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    zone.classList.add("drag-over");
+  });
+
+  zone.addEventListener("dragleave", () => {
+    zone.classList.remove("drag-over");
+  });
+
+  zone.addEventListener("drop", (event) => {
+    event.preventDefault();
+    zone.classList.remove("drag-over");
+
+    if (!event.dataTransfer?.files?.length) return;
+    els.cadFile.files = event.dataTransfer.files;
+    els.cadFile.dispatchEvent(new Event("change"));
   });
 }
 
@@ -1733,6 +1883,11 @@ function bindEvents() {
   els.bulkInput.addEventListener("blur", calcBulk);
 
   els.cadFile.addEventListener("change", async () => {
+    const name = els.cadFile.files?.[0]?.name || "선택된 파일 없음";
+    if (els.cadFileName) {
+      els.cadFileName.textContent = name;
+    }
+
     try {
       await loadCadFileFromInput();
       renderCadRooms([]);
@@ -1778,9 +1933,17 @@ function bindEvents() {
 (function init() {
   populateKsUi();
   setupCollapsibleCards();
+  setupTopNavigation();
+  setupScrollTopButton();
+  setupCadDropZone();
   bindEvents();
   applyKsLux();
   validateAllInputs();
+
+  if (els.singleResultPanel) {
+    els.singleResultPanel.style.display = "none";
+  }
+
   calcSingle();
   calcBulk();
   generateLispCode();
