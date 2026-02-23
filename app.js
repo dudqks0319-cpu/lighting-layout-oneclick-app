@@ -71,9 +71,13 @@ const els = {
   cadOutputLayer: document.getElementById("cadOutputLayer"),
   cadSymbolRadius: document.getElementById("cadSymbolRadius"),
   cadTextOffset: document.getElementById("cadTextOffset"),
+  cadOneClickBtn: document.getElementById("cadOneClickBtn"),
   cadAnalyzeBtn: document.getElementById("cadAnalyzeBtn"),
   cadLayoutBtn: document.getElementById("cadLayoutBtn"),
   cadExportBtn: document.getElementById("cadExportBtn"),
+  cadProgressWrap: document.getElementById("cadProgressWrap"),
+  cadProgressFill: document.getElementById("cadProgressFill"),
+  cadProgressText: document.getElementById("cadProgressText"),
   cadStatus: document.getElementById("cadStatus"),
   cadRoomTableBody: document.querySelector("#cadRoomTable tbody"),
   cadRecommendedTotal: document.getElementById("cadRecommendedTotal"),
@@ -1050,6 +1054,33 @@ function setCadStatus(message, append = false) {
   }
 }
 
+function setCadProgress(percent, text, status = "") {
+  if (els.cadProgressWrap) {
+    els.cadProgressWrap.style.display = "block";
+  }
+  if (els.cadProgressFill) {
+    const safe = Math.max(0, Math.min(100, Number(percent) || 0));
+    els.cadProgressFill.style.width = `${safe}%`;
+  }
+  if (els.cadProgressText) {
+    els.cadProgressText.textContent = text || "준비 중...";
+    els.cadProgressText.className = `progress-text${status ? ` ${status}` : ""}`;
+  }
+}
+
+function resetCadProgress() {
+  if (els.cadProgressWrap) {
+    els.cadProgressWrap.style.display = "none";
+  }
+  if (els.cadProgressFill) {
+    els.cadProgressFill.style.width = "0%";
+  }
+  if (els.cadProgressText) {
+    els.cadProgressText.textContent = "준비 중...";
+    els.cadProgressText.className = "progress-text";
+  }
+}
+
 function renderCadRooms(rows) {
   els.cadRoomTableBody.innerHTML = "";
 
@@ -1651,6 +1682,56 @@ async function exportCadResult() {
   }
 }
 
+async function runCadOneClick() {
+  if (!els.cadFile?.files?.[0]) {
+    setCadProgress(0, "❌ DXF/DWG 파일을 먼저 업로드해주세요.", "error");
+    return;
+  }
+
+  const btn = els.cadOneClickBtn;
+  const originalText = btn?.textContent;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "⏳ 처리 중...";
+  }
+
+  try {
+    setCadProgress(10, "📂 파일 로딩 중...");
+    await loadCadFileFromInput();
+
+    setCadProgress(40, "🏠 방 자동 인식 중...");
+    await analyzeCad();
+
+    const roomCount = cadState.rooms.length;
+    if (!roomCount) {
+      setCadProgress(40, "⚠️ 닫힌 폴리라인(방)을 찾지 못했습니다. 도면을 확인해주세요.", "error");
+      return;
+    }
+
+    setCadProgress(70, `⚡ ${roomCount.toLocaleString("ko-KR")}개 방에 조명 배치 계산 중...`);
+    runCadLayout();
+
+    const totalPlaced = cadState.placements.length;
+
+    setCadProgress(90, "📐 결과 DXF 생성 및 다운로드 중...");
+    await exportCadResult();
+
+    setCadProgress(
+      100,
+      `✅ 완료! 방 ${roomCount.toLocaleString("ko-KR")}개 / 조명 ${totalPlaced.toLocaleString("ko-KR")}개 배치`,
+      "done",
+    );
+  } catch (error) {
+    setCadProgress(0, `❌ 오류: ${error.message}`, "error");
+    setCadStatus(`오류: ${error.message}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalText || "🚀 원클릭 전체 배치 (인식→계산→DXF)";
+    }
+  }
+}
+
 async function runWithButtonLock(button, action) {
   if (!button) {
     await action();
@@ -1705,6 +1786,7 @@ function resetDefaults() {
   if (els.cadFileName) {
     els.cadFileName.textContent = "선택된 파일 없음";
   }
+  resetCadProgress();
 
   renderCadRooms([]);
   setCadStatus("CAD 파일을 업로드한 뒤 ‘방 자동 인식’을 실행하세요.");
@@ -1896,6 +1978,12 @@ function bindEvents() {
     }
   });
 
+  if (els.cadOneClickBtn) {
+    els.cadOneClickBtn.addEventListener("click", async () => {
+      await runCadOneClick();
+    });
+  }
+
   els.cadAnalyzeBtn.addEventListener("click", async () => {
     await runWithButtonLock(els.cadAnalyzeBtn, async () => {
       try {
@@ -1943,6 +2031,7 @@ function bindEvents() {
   if (els.singleResultPanel) {
     els.singleResultPanel.style.display = "none";
   }
+  resetCadProgress();
 
   calcSingle();
   calcBulk();
