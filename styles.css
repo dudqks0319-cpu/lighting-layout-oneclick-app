@@ -60,6 +60,28 @@ h2 {
   font-size: 20px;
 }
 
+.card > h2 {
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.card > h2::after {
+  content: "−";
+  color: var(--muted);
+  font-size: 18px;
+}
+
+.card.collapsed > h2::after {
+  content: "+";
+}
+
+.card.collapsed > *:not(h2) {
+  display: none;
+}
+
 .grid {
   display: grid;
   gap: 10px;
@@ -98,6 +120,22 @@ textarea {
   padding: 10px 12px;
 }
 
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: #5c88ff;
+  box-shadow: 0 0 0 3px rgba(92, 136, 255, 0.18);
+}
+
+input.is-invalid,
+select.is-invalid,
+textarea.is-invalid,
+input:invalid {
+  border-color: #ff6b6b;
+  box-shadow: 0 0 0 3px rgba(255, 107, 107, 0.14);
+}
+
 textarea {
   resize: vertical;
 }
@@ -127,6 +165,35 @@ button:hover {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.preset-bar {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.preset-btn {
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.preview-wrap {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #090f20;
+}
+
+#singlePreview {
+  width: 100%;
+  height: auto;
+  display: block;
 }
 
 .output {
@@ -200,5 +267,23 @@ code {
 
   h2 {
     font-size: 18px;
+  }
+
+  .card > h2::after {
+    font-size: 16px;
+  }
+
+  table {
+    min-width: 560px;
+  }
+
+  th,
+  td {
+    padding: 8px;
+    font-size: 12px;
+  }
+
+  .preset-bar {
+    font-size: 12px;
   }
 }
