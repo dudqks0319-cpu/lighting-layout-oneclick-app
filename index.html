@@ -7,254 +7,324 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <header>
+    <nav class="topnav">
+      <div class="topnav-inner">
+        <div class="brand">💡 전등배치 원클릭</div>
+        <div class="nav-pills">
+          <button class="pill active" data-target="section-settings">설정</button>
+          <button class="pill" data-target="section-single">단일 실</button>
+          <button class="pill" data-target="section-bulk">다실 일괄</button>
+          <button class="pill" data-target="section-lisp">LISP</button>
+          <button class="pill" data-target="section-cad">CAD</button>
+          <button class="pill" data-target="section-ks">KS 기준표</button>
+        </div>
+      </div>
+    </nav>
+
+    <section class="hero">
       <h1>전등배치 원클릭 앱</h1>
-      <p>
-        KS A 3011 조도 기준 + 자동 수량 계산 + 실별 일괄 계산 + CAD 자동 처리(DXF/DWG 업로드)
-        + AutoLISP(qqq/qqqall) 코드 생성
+      <p class="hero-sub">
+        KS A 3011 조도 기준으로 조명 수량 자동 계산 → AutoLISP/CAD 자동 배치까지 한 번에
       </p>
-    </header>
+      <div class="hero-steps">
+        <div class="step"><span class="step-num">1</span>설정 입력</div>
+        <div class="step-arrow">→</div>
+        <div class="step"><span class="step-num">2</span>수량 계산</div>
+        <div class="step-arrow">→</div>
+        <div class="step"><span class="step-num">3</span>LISP / CAD 출력</div>
+      </div>
+    </section>
 
     <main>
-      <section class="card">
-        <h2>① 공통 설정</h2>
-        <div class="grid two">
-          <label>
-            층고 (mm)
-            <input id="floorHeight" type="number" value="2700" min="1000" step="10" />
-          </label>
+      <section class="card" id="section-settings">
+        <h2><span class="card-icon">⚙️</span> ① 공통 설정</h2>
+        <div class="card-body">
+          <div class="preset-bar">
+            <span class="preset-label">빠른 프리셋</span>
+            <button type="button" class="preset-btn" data-preset="office"><span class="preset-icon">🏢</span>사무실</button>
+            <button type="button" class="preset-btn" data-preset="corridor"><span class="preset-icon">🚶</span>복도</button>
+            <button type="button" class="preset-btn" data-preset="storage"><span class="preset-icon">📦</span>창고</button>
+          </div>
 
-          <label>
-            등기구 광속 (Lm)
-            <input id="lumens" type="number" value="4400" min="100" step="10" />
-          </label>
+          <div class="grid two">
+            <label>
+              <span class="label-text">층고 (mm)</span>
+              <input id="floorHeight" type="number" value="2700" min="1000" step="10" />
+            </label>
 
-          <label>
-            보수율 (MF)
-            <input id="maintenanceFactor" type="number" value="0.9" min="0.1" max="1" step="0.01" />
-          </label>
+            <label>
+              <span class="label-text">등기구 광속 (Lm)</span>
+              <input id="lumens" type="number" value="4400" min="100" step="10" />
+            </label>
 
-          <label>
-            회로 번호 (쉼표 구분)
-            <input id="circuits" type="text" value="45, 46" />
-          </label>
+            <label>
+              <span class="label-text">보수율 (MF)</span>
+              <input id="maintenanceFactor" type="number" value="0.9" min="0.1" max="1" step="0.01" />
+            </label>
 
-          <label>
-            KS 조도등급
-            <select id="ksClass"></select>
-          </label>
+            <label>
+              <span class="label-text">회로 번호 (쉼표 구분)</span>
+              <input id="circuits" type="text" value="45, 46" />
+            </label>
 
-          <label>
-            조도 기준 선택
-            <select id="ksLevel">
-              <option value="min">최저</option>
-              <option value="std" selected>표준</option>
-              <option value="max">최고</option>
-            </select>
-          </label>
+            <label>
+              <span class="label-text">KS 조도등급</span>
+              <select id="ksClass"></select>
+            </label>
 
-          <label>
-            목표 조도 (Lx, 수동 입력 가능)
-            <input id="targetLux" type="number" value="400" min="1" step="1" />
-          </label>
+            <label>
+              <span class="label-text">조도 기준</span>
+              <select id="ksLevel">
+                <option value="min">최저</option>
+                <option value="std" selected>표준</option>
+                <option value="max">최고</option>
+              </select>
+            </label>
 
-          <label>
-            문자 스타일 (LISP 생성용)
-            <input id="fontStyle" type="text" value="Standard" />
-          </label>
+            <label>
+              <span class="label-text">목표 조도 (Lx)</span>
+              <input id="targetLux" type="number" value="400" min="1" step="1" />
+            </label>
 
-          <label>
-            이용률 계산 방식
-            <select id="uMode">
-              <option value="step">표준(계단식)</option>
-              <option value="interp" selected>보간(부드럽게)</option>
-            </select>
-          </label>
-        </div>
-        <div class="actions">
-          <button id="applyKsBtn">KS 값 자동 반영</button>
-          <button id="resetBtn" class="ghost">기본값 복원</button>
-        </div>
-        <div class="preset-bar">
-          <span>빠른 프리셋</span>
-          <button type="button" class="ghost preset-btn" data-preset="office">사무실 기본</button>
-          <button type="button" class="ghost preset-btn" data-preset="corridor">복도 기본</button>
-          <button type="button" class="ghost preset-btn" data-preset="storage">창고 기본</button>
+            <label>
+              <span class="label-text">이용률 방식</span>
+              <select id="uMode">
+                <option value="step">계단식</option>
+                <option value="interp" selected>보간(부드럽게)</option>
+              </select>
+            </label>
+
+            <label>
+              <span class="label-text">문자 스타일 (LISP)</span>
+              <input id="fontStyle" type="text" value="Standard" />
+            </label>
+          </div>
+
+          <div class="actions">
+            <button id="applyKsBtn" class="btn-primary">KS 값 자동 반영</button>
+            <button id="resetBtn" class="btn-ghost">🔄 기본값 복원</button>
+          </div>
         </div>
       </section>
 
-      <section class="card">
-        <h2>② 단일 실 계산</h2>
-        <div class="grid three">
-          <label>
-            실 가로 (mm)
-            <input id="roomWidth" type="number" value="9000" min="100" step="10" />
-          </label>
-          <label>
-            실 세로 (mm)
-            <input id="roomHeight" type="number" value="6000" min="100" step="10" />
-          </label>
-          <label>
-            실 면적 (㎡, 비우면 가로×세로 자동)
-            <input id="roomArea" type="number" placeholder="자동 계산" min="0" step="0.01" />
-          </label>
+      <section class="card" id="section-single">
+        <h2><span class="card-icon">📐</span> ② 단일 실 계산</h2>
+        <div class="card-body">
+          <div class="grid three">
+            <label>
+              <span class="label-text">실 가로 (mm)</span>
+              <input id="roomWidth" type="number" value="9000" min="0" step="10" />
+            </label>
+            <label>
+              <span class="label-text">실 세로 (mm)</span>
+              <input id="roomHeight" type="number" value="6000" min="0" step="10" />
+            </label>
+            <label>
+              <span class="label-text">실 면적 (㎡, 선택)</span>
+              <input id="roomArea" type="number" placeholder="자동 계산" min="0" step="0.01" />
+            </label>
+          </div>
+
+          <div class="actions">
+            <button id="calcSingleBtn" class="btn-primary">⚡ 계산하기</button>
+          </div>
+
+          <pre id="singleOutput" class="output"></pre>
+
+          <div id="singleResultPanel" class="result-panel">
+            <div class="result-grid">
+              <div class="result-item">
+                <span class="result-label">면적</span>
+                <span class="result-value" id="resArea">-</span>
+              </div>
+              <div class="result-item">
+                <span class="result-label">유효높이</span>
+                <span class="result-value" id="resHeff">-</span>
+              </div>
+              <div class="result-item">
+                <span class="result-label">실지수(RI)</span>
+                <span class="result-value" id="resRI">-</span>
+              </div>
+              <div class="result-item">
+                <span class="result-label">이용률(U)</span>
+                <span class="result-value" id="resU">-</span>
+              </div>
+              <div class="result-item big">
+                <span class="result-label">추천 수량</span>
+                <span class="result-value highlight" id="resCount">-</span>
+              </div>
+            </div>
+            <p class="result-note" id="resNote"></p>
+          </div>
+
+          <div class="preview-wrap">
+            <canvas id="singlePreview" width="640" height="320" aria-label="단일 실 조명 배치 미리보기"></canvas>
+          </div>
+          <p class="hint">※ 미리보기는 개념도이며, 실제 CAD 자동배치 결과와 일부 다를 수 있습니다.</p>
         </div>
-        <div class="actions">
-          <button id="calcSingleBtn">단일 실 계산</button>
-        </div>
-        <pre id="singleOutput" class="output"></pre>
-        <div class="preview-wrap">
-          <canvas id="singlePreview" width="640" height="320" aria-label="단일 실 조명 배치 미리보기"></canvas>
-        </div>
-        <p class="hint">※ 미리보기는 개념도이며, 실제 CAD 자동배치 결과와 일부 다를 수 있습니다.</p>
       </section>
 
-      <section class="card">
-        <h2>③ 다실(전체 배치도) 일괄 계산</h2>
-        <p class="hint">
-          한 줄에 한 실씩 입력하세요. 형식:
-          <code>실명,가로mm,세로mm,면적㎡(선택),조도Lx(선택)</code>
-        </p>
-        <textarea id="bulkInput" rows="9" spellcheck="false">회의실A,9000,6000,,400
+      <section class="card" id="section-bulk">
+        <h2><span class="card-icon">🏗️</span> ③ 다실 일괄 계산</h2>
+        <div class="card-body">
+          <p class="info-box">
+            한 줄에 한 실씩 입력하세요: <code>실명,가로mm,세로mm,면적㎡(선택),조도Lx(선택)</code>
+          </p>
+          <textarea id="bulkInput" rows="8" spellcheck="false">회의실A,9000,6000,,400
 사무실1,12000,8000,,400
 복도,20000,2500,,200</textarea>
-        <div class="actions">
-          <button id="calcBulkBtn">일괄 계산</button>
-          <button id="downloadCsvBtn" class="ghost">결과 CSV 다운로드</button>
-        </div>
-        <div class="table-wrap">
-          <table id="bulkTable">
-            <thead>
-              <tr>
-                <th>실명</th>
-                <th>면적(㎡)</th>
-                <th>RI</th>
-                <th>U</th>
-                <th>조도(Lx)</th>
-                <th>추천 수량(개)</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-            <tfoot>
-              <tr>
-                <th colspan="5" data-label="항목">총 추천 수량</th>
-                <th id="bulkTotal" data-label="값">0</th>
-              </tr>
-            </tfoot>
-          </table>
+
+          <div class="actions">
+            <button id="calcBulkBtn" class="btn-primary">⚡ 일괄 계산</button>
+            <button id="downloadCsvBtn" class="btn-ghost">📥 CSV 다운로드</button>
+          </div>
+
+          <div class="table-wrap">
+            <table id="bulkTable">
+              <thead>
+                <tr>
+                  <th>실명</th>
+                  <th>면적(㎡)</th>
+                  <th>RI</th>
+                  <th>U</th>
+                  <th>조도(Lx)</th>
+                  <th>추천 수량</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+              <tfoot>
+                <tr>
+                  <th colspan="5" data-label="항목">총 추천 수량</th>
+                  <th id="bulkTotal" data-label="값">0</th>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         </div>
       </section>
 
-      <section class="card">
-        <h2>④ AutoLISP 생성 (QQQ + QQQALL)</h2>
-        <p class="hint">
-          현재 입력값으로 기본값이 채워진 LISP를 생성합니다. AutoCAD에서
-          <code>APPLOAD</code>로 불러와 <code>QQQ</code>(단일),
-          <code>QQQALL</code>(다중 경계 일괄) 명령으로 실행하세요.
-          (이용률 계산 방식: 공통 설정의 선택값 반영)
-        </p>
-        <div class="actions">
-          <button id="genLispBtn">LISP 생성</button>
-          <button id="downloadLispBtn" class="ghost">qqq_auto.lsp 다운로드</button>
+      <section class="card" id="section-lisp">
+        <h2><span class="card-icon">📝</span> ④ AutoLISP 생성</h2>
+        <div class="card-body">
+          <p class="info-box">
+            사용법: LISP 생성 → 다운로드 → AutoCAD에서 <code>APPLOAD</code> →
+            <code>QQQ</code>(단일 실) 또는 <code>QQQALL</code>(다중 경계) 실행
+          </p>
+
+          <div class="actions">
+            <button id="genLispBtn" class="btn-secondary">⚡ LISP 생성</button>
+            <button id="downloadLispBtn" class="btn-ghost">📥 qqq_auto.lsp 다운로드</button>
+          </div>
+
+          <p class="hint">(이용률 계산 방식: 공통 설정의 선택값 반영)</p>
+          <textarea id="lispOutput" rows="16" spellcheck="false"></textarea>
         </div>
-        <textarea id="lispOutput" rows="16" spellcheck="false"></textarea>
       </section>
 
-      <section class="card">
-        <h2>⑤ CAD 자동 처리 (DXF/DWG → 방 인식 → 계산 → 결과 DXF)</h2>
-        <p class="hint">
-          도면을 업로드하면 닫힌 폴리라인을 방으로 자동 인식하고, 조도 계산 후 배치 점을 생성해
-          결과 DXF를 내려받을 수 있습니다.
-        </p>
+      <section class="card" id="section-cad">
+        <h2><span class="card-icon">🖥️</span> ⑤ CAD 자동 처리</h2>
+        <div class="card-body">
+          <p class="info-box">
+            DXF/DWG 업로드 → 닫힌 폴리라인 자동 인식 → 조도 계산 → 배치 점 생성 → 결과 DXF 다운로드
+          </p>
 
-        <div class="grid two">
-          <label>
-            CAD 파일 업로드 (.dxf, .dwg)
+          <div class="cad-upload-zone" id="cadDropZone">
             <input id="cadFile" type="file" accept=".dxf,.dwg" />
-          </label>
+            <span class="upload-icon">📂</span>
+            <p>DXF/DWG 파일을 여기에 드래그하거나 클릭</p>
+            <p class="upload-filename" id="cadFileName">선택된 파일 없음</p>
+          </div>
 
-          <label>
-            도면 단위
-            <select id="cadUnit">
-              <option value="mm" selected>mm</option>
-              <option value="cm">cm</option>
-              <option value="m">m</option>
-            </select>
-          </label>
+          <details class="cad-options">
+            <summary>고급 설정 (도면 단위, 면적 범위, 그리드 등)</summary>
+            <div class="grid two">
+              <label>
+                <span class="label-text">도면 단위</span>
+                <select id="cadUnit">
+                  <option value="mm" selected>mm</option>
+                  <option value="cm">cm</option>
+                  <option value="m">m</option>
+                </select>
+              </label>
 
-          <label>
-            최소 방 면적 (㎡)
-            <input id="cadMinArea" type="number" value="3" min="0" step="0.1" />
-          </label>
+              <label>
+                <span class="label-text">최소 방 면적 (㎡)</span>
+                <input id="cadMinArea" type="number" value="3" min="0" step="0.1" />
+              </label>
 
-          <label>
-            최대 방 면적 (㎡)
-            <input id="cadMaxArea" type="number" value="5000" min="1" step="1" />
-          </label>
+              <label>
+                <span class="label-text">최대 방 면적 (㎡)</span>
+                <input id="cadMaxArea" type="number" value="5000" min="1" step="1" />
+              </label>
 
-          <label>
-            배치 그리드 (mm)
-            <input id="cadGrid" type="number" value="300" min="10" step="10" />
-          </label>
+              <label>
+                <span class="label-text">배치 그리드 (mm)</span>
+                <input id="cadGrid" type="number" value="300" min="10" step="10" />
+              </label>
 
-          <label>
-            출력 레이어명
-            <input id="cadOutputLayer" type="text" value="LIGHT_AUTO" />
-          </label>
+              <label>
+                <span class="label-text">출력 레이어명</span>
+                <input id="cadOutputLayer" type="text" value="LIGHT_AUTO" />
+              </label>
 
-          <label>
-            심볼 반지름 (mm)
-            <input id="cadSymbolRadius" type="number" value="150" min="1" step="1" />
-          </label>
+              <label>
+                <span class="label-text">심볼 반지름 (mm)</span>
+                <input id="cadSymbolRadius" type="number" value="150" min="1" step="1" />
+              </label>
 
-          <label>
-            텍스트 오프셋 (mm)
-            <input id="cadTextOffset" type="number" value="300" min="0" step="10" />
-          </label>
-        </div>
+              <label>
+                <span class="label-text">텍스트 오프셋 (mm)</span>
+                <input id="cadTextOffset" type="number" value="300" min="0" step="10" />
+              </label>
+            </div>
+          </details>
 
-        <div class="actions">
-          <button id="cadAnalyzeBtn">방 자동 인식</button>
-          <button id="cadLayoutBtn">자동 배치 계산</button>
-          <button id="cadExportBtn" class="ghost">결과 DXF 다운로드</button>
-        </div>
+          <div class="actions">
+            <button id="cadAnalyzeBtn" class="btn-secondary">🔍 방 자동 인식</button>
+            <button id="cadLayoutBtn" class="btn-primary">⚡ 자동 배치</button>
+            <button id="cadExportBtn" class="btn-ghost">📥 결과 DXF 다운로드</button>
+          </div>
 
-        <pre id="cadStatus" class="output"></pre>
+          <pre id="cadStatus" class="output"></pre>
 
-        <div class="table-wrap">
-          <table id="cadRoomTable">
-            <thead>
-              <tr>
-                <th>방</th>
-                <th>레이어</th>
-                <th>면적(㎡)</th>
-                <th>RI</th>
-                <th>U</th>
-                <th>추천 수량</th>
-                <th>배치 수량</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-            <tfoot>
-              <tr>
-                <th colspan="5" data-label="항목">총합</th>
-                <th id="cadRecommendedTotal" data-label="추천">0</th>
-                <th id="cadPlacedTotal" data-label="배치">0</th>
-              </tr>
-            </tfoot>
-          </table>
+          <div class="table-wrap">
+            <table id="cadRoomTable">
+              <thead>
+                <tr>
+                  <th>방</th>
+                  <th>레이어</th>
+                  <th>면적(㎡)</th>
+                  <th>RI</th>
+                  <th>U</th>
+                  <th>추천</th>
+                  <th>배치</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+              <tfoot>
+                <tr>
+                  <th colspan="5" data-label="항목">총합</th>
+                  <th id="cadRecommendedTotal" data-label="추천">0</th>
+                  <th id="cadPlacedTotal" data-label="배치">0</th>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         </div>
       </section>
 
-      <section class="card">
-        <h2>⑥ KS A 3011 조도 등급표 (요약)</h2>
-        <ul id="ksSummary"></ul>
-        <p class="disclaimer">
-          참고: 본 앱의 KS 값은 제공해주신 표(조도 등급 A~K) 기반 요약값입니다.
-          실무 적용 시 프로젝트 발주처/최신 개정판/설계 기준서와 함께 최종 검토하세요.
-        </p>
+      <section class="card collapsed" id="section-ks">
+        <h2><span class="card-icon">📊</span> ⑥ KS A 3011 조도 등급표</h2>
+        <div class="card-body">
+          <ul id="ksSummary"></ul>
+          <p class="disclaimer">
+            참고: KS 값은 제공된 조도 등급 A~K 요약값입니다. 실무 적용 시 발주처/최신 개정판/설계 기준서와 함께 최종 검토하세요.
+          </p>
+        </div>
       </section>
     </main>
+
+    <button id="scrollTopBtn" class="scroll-top" aria-label="맨 위로">↑</button>
 
     <footer>
       <p>Built for one-click lighting layout workflow.</p>
