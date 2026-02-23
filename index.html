@@ -268,6 +268,29 @@
               </label>
 
               <label>
+                <span class="label-text">심벌 방식</span>
+                <select id="cadSymbolMode">
+                  <option value="circle" selected>기본 원형 심벌</option>
+                  <option value="block">도면 블록 심벌 사용</option>
+                </select>
+              </label>
+
+              <label>
+                <span class="label-text">심벌 블록명 (선택)</span>
+                <input id="cadBlockName" type="text" list="cadBlockNames" placeholder="예: LIGHT_FIXTURE_A" />
+              </label>
+
+              <label>
+                <span class="label-text">블록 스케일</span>
+                <input id="cadBlockScale" type="number" value="1" min="0.001" step="0.1" />
+              </label>
+
+              <label>
+                <span class="label-text">블록 회전 (deg)</span>
+                <input id="cadBlockRotation" type="number" value="0" step="1" />
+              </label>
+
+              <label>
                 <span class="label-text">심볼 반지름 (mm)</span>
                 <input id="cadSymbolRadius" type="number" value="150" min="1" step="1" />
               </label>
@@ -277,6 +300,8 @@
                 <input id="cadTextOffset" type="number" value="300" min="0" step="10" />
               </label>
             </div>
+            <datalist id="cadBlockNames"></datalist>
+            <p id="cadBlockHint" class="hint">※ 블록명은 도면 분석 후 자동으로 후보가 표시됩니다.</p>
           </details>
 
           <div class="actions">
