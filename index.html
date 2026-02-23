@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>전등배치 원클릭 앱 (KS A 3011 + AutoLISP)</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>전등배치 원클릭 앱</h1>
+      <p>
+        KS A 3011 조도 기준 + 자동 수량 계산 + 실별 일괄 계산 + AutoLISP(qqq/qqqall)
+        코드 생성
+      </p>
+    </header>
+
+    <main>
+      <section class="card">
+        <h2>① 공통 설정</h2>
+        <div class="grid two">
+          <label>
+            층고 (mm)
+            <input id="floorHeight" type="number" value="2700" min="1000" step="10" />
+          </label>
+
+          <label>
+            등기구 광속 (Lm)
+            <input id="lumens" type="number" value="4400" min="100" step="10" />
+          </label>
+
+          <label>
+            보수율 (MF)
+            <input id="maintenanceFactor" type="number" value="0.9" min="0.1" max="1" step="0.01" />
+          </label>
+
+          <label>
+            회로 번호 (쉼표 구분)
+            <input id="circuits" type="text" value="45, 46" />
+          </label>
+
+          <label>
+            KS 조도등급
+            <select id="ksClass"></select>
+          </label>
+
+          <label>
+            조도 기준 선택
+            <select id="ksLevel">
+              <option value="min">최저</option>
+              <option value="std" selected>표준</option>
+              <option value="max">최고</option>
+            </select>
+          </label>
+
+          <label>
+            목표 조도 (Lx, 수동 입력 가능)
+            <input id="targetLux" type="number" value="400" min="1" step="1" />
+          </label>
+
+          <label>
+            문자 스타일 (LISP 생성용)
+            <input id="fontStyle" type="text" value="Standard" />
+          </label>
+        </div>
+        <div class="actions">
+          <button id="applyKsBtn">KS 값 자동 반영</button>
+          <button id="resetBtn" class="ghost">기본값 복원</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>② 단일 실 계산</h2>
+        <div class="grid three">
+          <label>
+            실 가로 (mm)
+            <input id="roomWidth" type="number" value="9000" min="100" step="10" />
+          </label>
+          <label>
+            실 세로 (mm)
+            <input id="roomHeight" type="number" value="6000" min="100" step="10" />
+          </label>
+          <label>
+            실 면적 (㎡, 비우면 가로×세로 자동)
+            <input id="roomArea" type="number" placeholder="자동 계산" min="0" step="0.01" />
+          </label>
+        </div>
+        <div class="actions">
+          <button id="calcSingleBtn">단일 실 계산</button>
+        </div>
+        <pre id="singleOutput" class="output"></pre>
+      </section>
+
+      <section class="card">
+        <h2>③ 다실(전체 배치도) 일괄 계산</h2>
+        <p class="hint">
+          한 줄에 한 실씩 입력하세요. 형식:
+          <code>실명,가로mm,세로mm,면적㎡(선택),조도Lx(선택)</code>
+        </p>
+        <textarea id="bulkInput" rows="9" spellcheck="false">회의실A,9000,6000,,400
+사무실1,12000,8000,,400
+복도,20000,2500,,200</textarea>
+        <div class="actions">
+          <button id="calcBulkBtn">일괄 계산</button>
+          <button id="downloadCsvBtn" class="ghost">결과 CSV 다운로드</button>
+        </div>
+        <div class="table-wrap">
+          <table id="bulkTable">
+            <thead>
+              <tr>
+                <th>실명</th>
+                <th>면적(㎡)</th>
+                <th>RI</th>
+                <th>U</th>
+                <th>조도(Lx)</th>
+                <th>추천 수량(개)</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+            <tfoot>
+              <tr>
+                <th colspan="5">총 추천 수량</th>
+                <th id="bulkTotal">0</th>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>④ AutoLISP 생성 (QQQ + QQQALL)</h2>
+        <p class="hint">
+          현재 입력값으로 기본값이 채워진 LISP를 생성합니다. AutoCAD에서
+          <code>APPLOAD</code>로 불러와 <code>QQQ</code>(단일),
+          <code>QQQALL</code>(다중 경계 일괄) 명령으로 실행하세요.
+        </p>
+        <div class="actions">
+          <button id="genLispBtn">LISP 생성</button>
+          <button id="downloadLispBtn" class="ghost">qqq_auto.lsp 다운로드</button>
+        </div>
+        <textarea id="lispOutput" rows="16" spellcheck="false"></textarea>
+      </section>
+
+      <section class="card">
+        <h2>KS A 3011 조도 등급표 (요약)</h2>
+        <ul id="ksSummary"></ul>
+        <p class="disclaimer">
+          참고: 본 앱의 KS 값은 제공해주신 표(조도 등급 A~K) 기반 요약값입니다.
+          실무 적용 시 프로젝트 발주처/최신 개정판/설계 기준서와 함께 최종 검토하세요.
+        </p>
+      </section>
+    </main>
+
+    <footer>
+      <p>Built for one-click lighting layout workflow.</p>
+    </footer>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
