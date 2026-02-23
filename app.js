@@ -21,6 +21,7 @@ const cadState = {
   content: null,
   rooms: [],
   placements: [],
+  blockNames: [],
 };
 
 const els = {
@@ -69,6 +70,12 @@ const els = {
   cadMaxArea: document.getElementById("cadMaxArea"),
   cadGrid: document.getElementById("cadGrid"),
   cadOutputLayer: document.getElementById("cadOutputLayer"),
+  cadSymbolMode: document.getElementById("cadSymbolMode"),
+  cadBlockName: document.getElementById("cadBlockName"),
+  cadBlockScale: document.getElementById("cadBlockScale"),
+  cadBlockRotation: document.getElementById("cadBlockRotation"),
+  cadBlockNames: document.getElementById("cadBlockNames"),
+  cadBlockHint: document.getElementById("cadBlockHint"),
   cadSymbolRadius: document.getElementById("cadSymbolRadius"),
   cadTextOffset: document.getElementById("cadTextOffset"),
   cadOneClickBtn: document.getElementById("cadOneClickBtn"),
@@ -398,6 +405,26 @@ function validateNumberInput(input) {
 
   if (input.id === "maintenanceFactor" && (n <= 0 || n > 1)) {
     setInputValidity(input, "보수율은 0 초과 1 이하여야 합니다.");
+    return false;
+  }
+
+  if (["lumens", "targetLux", "roomWidth", "roomHeight", "cadGrid", "cadSymbolRadius"].includes(input.id) && n <= 0) {
+    setInputValidity(input, "0보다 큰 값을 입력해주세요.");
+    return false;
+  }
+
+  if (input.id === "cadBlockScale" && n <= 0) {
+    setInputValidity(input, "블록 스케일은 0보다 커야 합니다.");
+    return false;
+  }
+
+  if (input.id === "roomArea" && n < 0) {
+    setInputValidity(input, "면적은 0 이상으로 입력해주세요.");
+    return false;
+  }
+
+  if (["cadMinArea", "cadTextOffset"].includes(input.id) && n < 0) {
+    setInputValidity(input, "0 이상으로 입력해주세요.");
     return false;
   }
 
@@ -1041,6 +1068,10 @@ function getCadConfig() {
     maxAreaM2,
     gridMm: Math.max(10, toNum(els.cadGrid.value, 300)),
     outputLayer: els.cadOutputLayer.value.trim() || "LIGHT_AUTO",
+    symbolMode: els.cadSymbolMode?.value === "block" ? "block" : "circle",
+    blockName: els.cadBlockName?.value.trim() || "",
+    blockScale: Math.max(0.001, toNum(els.cadBlockScale?.value, 1)),
+    blockRotationDeg: toNum(els.cadBlockRotation?.value, 0),
     symbolRadiusMm: Math.max(1, toNum(els.cadSymbolRadius.value, 150)),
     textOffsetMm: Math.max(0, toNum(els.cadTextOffset.value, 300)),
   };
@@ -1078,6 +1109,53 @@ function resetCadProgress() {
   if (els.cadProgressText) {
     els.cadProgressText.textContent = "준비 중...";
     els.cadProgressText.className = "progress-text";
+  }
+}
+
+function collectCadBlockNames(database) {
+  const blocks = database?.blocks;
+  if (!blocks?.size) return [];
+
+  const names = [];
+  for (let i = 0, size = blocks.size(); i < size; i += 1) {
+    const block = blocks.get(i);
+    const name = String(block?.name || "").trim();
+    if (!name) continue;
+    if (name.startsWith("*")) continue;
+    names.push(name);
+  }
+
+  return Array.from(new Set(names));
+}
+
+function findCadBlockName(database, requestedName) {
+  const target = String(requestedName || "").trim().toLowerCase();
+  if (!target) return null;
+
+  const names = collectCadBlockNames(database);
+  return names.find((name) => name.toLowerCase() === target) || null;
+}
+
+function updateCadBlockNameOptions(names = []) {
+  cadState.blockNames = Array.isArray(names) ? names : [];
+
+  if (els.cadBlockNames) {
+    els.cadBlockNames.innerHTML = "";
+    cadState.blockNames.forEach((name) => {
+      const option = document.createElement("option");
+      option.value = name;
+      els.cadBlockNames.appendChild(option);
+    });
+  }
+
+  if (els.cadBlockHint) {
+    if (!cadState.blockNames.length) {
+      els.cadBlockHint.textContent = "※ 블록명은 도면 분석 후 자동으로 후보가 표시됩니다.";
+    } else {
+      const preview = cadState.blockNames.slice(0, 6).join(", ");
+      const suffix = cadState.blockNames.length > 6 ? ` 외 ${cadState.blockNames.length - 6}개` : "";
+      els.cadBlockHint.textContent = `인식된 블록 ${cadState.blockNames.length}개: ${preview}${suffix}`;
+    }
   }
 }
 
@@ -1231,10 +1309,12 @@ async function loadCadFileFromInput() {
   cadState.extension = ext;
   cadState.rooms = [];
   cadState.placements = [];
+  cadState.blockNames = [];
 
   // Keep original bytes for both DXF and DWG to avoid encoding loss on non-ASCII drawings.
   cadState.content = buffer;
 
+  updateCadBlockNameOptions([]);
   setCadStatus(`파일 로드 완료: ${file.name} (${ext.toUpperCase()})`);
 }
 
@@ -1552,15 +1632,36 @@ function appendPlacementEntities(lib, database, placements, cadCfg, common) {
   const textOffsetRaw = mmToRawLength(cadCfg.textOffsetMm, cadCfg.unit);
   const textHeightRaw = mmToRawLength(CAD_DEFAULT_TEXT_HEIGHT_MM, cadCfg.unit);
 
+  const requestedBlockName = String(cadCfg.blockName || "").trim();
+  const resolvedBlockName = cadCfg.symbolMode === "block"
+    ? findCadBlockName(database, requestedBlockName)
+    : null;
+  const useBlockSymbol = Boolean(resolvedBlockName);
+
   placements.forEach((item) => {
-    const circle = new lib.DRW_Circle();
-    circle.layer = cadCfg.outputLayer;
-    circle.color = 2;
-    circle.basePoint.x = item.x;
-    circle.basePoint.y = item.y;
-    circle.basePoint.z = 0;
-    circle.radius = Math.max(radiusRaw, 1);
-    block.entities.push_back(circle);
+    if (useBlockSymbol) {
+      const insert = new lib.DRW_Insert();
+      insert.layer = cadCfg.outputLayer;
+      insert.color = 2;
+      insert.name = resolvedBlockName;
+      insert.basePoint.x = item.x;
+      insert.basePoint.y = item.y;
+      insert.basePoint.z = 0;
+      insert.xScale = cadCfg.blockScale;
+      insert.yScale = cadCfg.blockScale;
+      insert.zScale = cadCfg.blockScale;
+      insert.angle = cadCfg.blockRotationDeg;
+      block.entities.push_back(insert);
+    } else {
+      const circle = new lib.DRW_Circle();
+      circle.layer = cadCfg.outputLayer;
+      circle.color = 2;
+      circle.basePoint.x = item.x;
+      circle.basePoint.y = item.y;
+      circle.basePoint.z = 0;
+      circle.radius = Math.max(radiusRaw, 1);
+      block.entities.push_back(circle);
+    }
 
     const text = new lib.DRW_Text();
     text.layer = cadCfg.outputLayer;
@@ -1580,6 +1681,12 @@ function appendPlacementEntities(lib, database, placements, cadCfg, common) {
 
     block.entities.push_back(text);
   });
+
+  return {
+    requestedBlockName,
+    resolvedBlockName,
+    usedBlockSymbol: useBlockSymbol,
+  };
 }
 
 function validateExportedDxf(lib, dxfContent) {
@@ -1616,8 +1723,11 @@ async function analyzeCad() {
   try {
     parsed = await parseCadDatabase(cadState.content, cadState.extension);
     const rooms = detectRooms(parsed.lib, parsed.database, common, cadCfg);
+    const blockNames = collectCadBlockNames(parsed.database);
+
     cadState.rooms = rooms;
     cadState.placements = [];
+    updateCadBlockNameOptions(blockNames);
 
     renderCadRooms(rooms);
 
@@ -1626,6 +1736,7 @@ async function analyzeCad() {
       `도면 분석 완료\n` +
         `- 인식된 방 수: ${rooms.length}\n` +
         `- 추천 총수량: ${recTotal.toLocaleString("ko-KR")}\n` +
+        `- 블록 후보 수: ${blockNames.length}\n` +
         `- 기준: 닫힌 폴리라인 + 면적 ${cadCfg.minAreaM2}~${cadCfg.maxAreaM2}㎡`,
     );
   } finally {
@@ -1655,7 +1766,11 @@ async function exportCadResult() {
   let parsed;
   try {
     parsed = await parseCadDatabase(cadState.content, cadState.extension);
-    appendPlacementEntities(parsed.lib, parsed.database, cadState.placements, cadCfg, common);
+
+    const blockNames = collectCadBlockNames(parsed.database);
+    updateCadBlockNameOptions(blockNames);
+
+    const symbolInfo = appendPlacementEntities(parsed.lib, parsed.database, cadState.placements, cadCfg, common);
 
     const targetVersion = parsed.lib.DRW_Version.AC1015 || parsed.lib.DRW_Version.AC1021;
     const output = parsed.fileHandler.fileExport(
@@ -1675,7 +1790,18 @@ async function exportCadResult() {
     const sizeMb = (toDownloadPayload(output).byteLength / (1024 * 1024)).toFixed(2);
     downloadFile(outputName, output, "application/dxf");
 
-    setCadStatus(`결과 파일 생성 완료: ${outputName}\n파일 크기: ${sizeMb} MB\n다운로드를 확인해주세요.`);
+    const symbolMessage = symbolInfo.usedBlockSymbol
+      ? `심벌: 블록 '${symbolInfo.resolvedBlockName}' 사용`
+      : (cadCfg.symbolMode === "block" && symbolInfo.requestedBlockName
+        ? `심벌: 요청 블록 '${symbolInfo.requestedBlockName}' 미발견 → 기본 원형 심벌로 대체`
+        : "심벌: 기본 원형 심벌 사용");
+
+    setCadStatus(
+      `결과 파일 생성 완료: ${outputName}\n` +
+        `파일 크기: ${sizeMb} MB\n` +
+        `${symbolMessage}\n` +
+        `다운로드를 확인해주세요.`,
+    );
   } finally {
     if (parsed?.fileHandler) parsed.fileHandler.delete();
     if (parsed?.database) parsed.database.delete();
@@ -1690,10 +1816,16 @@ async function runCadOneClick() {
 
   const btn = els.cadOneClickBtn;
   const originalText = btn?.textContent;
+  const lockTargets = [els.cadAnalyzeBtn, els.cadLayoutBtn, els.cadExportBtn, els.cadFile].filter(Boolean);
+  const prevDisabled = lockTargets.map((el) => el.disabled);
+
   if (btn) {
     btn.disabled = true;
     btn.textContent = "⏳ 처리 중...";
   }
+  lockTargets.forEach((el) => {
+    el.disabled = true;
+  });
 
   try {
     setCadProgress(10, "📂 파일 로딩 중...");
@@ -1729,6 +1861,9 @@ async function runCadOneClick() {
       btn.disabled = false;
       btn.textContent = originalText || "🚀 원클릭 전체 배치 (인식→계산→DXF)";
     }
+    lockTargets.forEach((el, idx) => {
+      el.disabled = prevDisabled[idx];
+    });
   }
 }
 
@@ -1771,6 +1906,10 @@ function resetDefaults() {
   els.cadMaxArea.value = "5000";
   els.cadGrid.value = "300";
   els.cadOutputLayer.value = "LIGHT_AUTO";
+  if (els.cadSymbolMode) els.cadSymbolMode.value = "circle";
+  if (els.cadBlockName) els.cadBlockName.value = "";
+  if (els.cadBlockScale) els.cadBlockScale.value = "1";
+  if (els.cadBlockRotation) els.cadBlockRotation.value = "0";
   els.cadSymbolRadius.value = "150";
   els.cadTextOffset.value = "300";
   els.cadFile.value = "";
@@ -1782,6 +1921,9 @@ function resetDefaults() {
   cadState.content = null;
   cadState.rooms = [];
   cadState.placements = [];
+  cadState.blockNames = [];
+
+  updateCadBlockNameOptions([]);
 
   if (els.cadFileName) {
     els.cadFileName.textContent = "선택된 파일 없음";
@@ -1970,11 +2112,23 @@ function bindEvents() {
       els.cadFileName.textContent = name;
     }
 
+    cadState.file = null;
+    cadState.extension = "";
+    cadState.content = null;
+    cadState.rooms = [];
+    cadState.placements = [];
+    cadState.blockNames = [];
+    renderCadRooms([]);
+    updateCadBlockNameOptions([]);
+
     try {
       await loadCadFileFromInput();
       renderCadRooms([]);
     } catch (error) {
       setCadStatus(`오류: ${error.message}`);
+      cadState.file = null;
+      cadState.extension = "";
+      cadState.content = null;
     }
   });
 
@@ -2031,6 +2185,7 @@ function bindEvents() {
   if (els.singleResultPanel) {
     els.singleResultPanel.style.display = "none";
   }
+  updateCadBlockNameOptions([]);
   resetCadProgress();
 
   calcSingle();
