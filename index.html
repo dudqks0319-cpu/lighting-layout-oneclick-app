@@ -62,10 +62,24 @@
             문자 스타일 (LISP 생성용)
             <input id="fontStyle" type="text" value="Standard" />
           </label>
+
+          <label>
+            이용률 계산 방식
+            <select id="uMode">
+              <option value="step">표준(계단식)</option>
+              <option value="interp" selected>보간(부드럽게)</option>
+            </select>
+          </label>
         </div>
         <div class="actions">
           <button id="applyKsBtn">KS 값 자동 반영</button>
           <button id="resetBtn" class="ghost">기본값 복원</button>
+        </div>
+        <div class="preset-bar">
+          <span>빠른 프리셋</span>
+          <button type="button" class="ghost preset-btn" data-preset="office">사무실 기본</button>
+          <button type="button" class="ghost preset-btn" data-preset="corridor">복도 기본</button>
+          <button type="button" class="ghost preset-btn" data-preset="storage">창고 기본</button>
         </div>
       </section>
 
@@ -89,6 +103,9 @@
           <button id="calcSingleBtn">단일 실 계산</button>
         </div>
         <pre id="singleOutput" class="output"></pre>
+        <div class="preview-wrap">
+          <canvas id="singlePreview" width="640" height="320" aria-label="단일 실 조명 배치 미리보기"></canvas>
+        </div>
       </section>
 
       <section class="card">
