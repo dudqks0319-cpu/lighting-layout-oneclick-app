@@ -228,6 +228,10 @@ function applyPreset(name) {
   const preset = PRESET_MAP[name];
   if (!preset) return;
 
+  presetButtons.forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.preset === name);
+  });
+
   els.ksClass.value = preset.ksClass;
   els.ksLevel.value = preset.ksLevel;
   els.floorHeight.value = String(preset.floorHeight);
@@ -440,28 +444,60 @@ function drawSinglePreview(widthMm, heightMm, count) {
   ctx.lineWidth = 2;
   ctx.strokeRect(ox, oy, roomW, roomH);
 
+  // room dimensions
+  ctx.fillStyle = "#6688bb";
+  ctx.font = "11px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(`${(widthMm / 1000).toFixed(1)}m`, ox + roomW / 2, oy - 6);
+  ctx.save();
+  ctx.translate(ox - 8, oy + roomH / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText(`${(heightMm / 1000).toFixed(1)}m`, 0, 0);
+  ctx.restore();
+  ctx.textAlign = "left";
+
   const cols = Math.max(1, Math.round(Math.sqrt(count * ratio)));
   const rows = Math.max(1, Math.round(count / cols));
 
-  const dx = cols > 1 ? roomW / (cols - 1) : roomW / 2;
-  const dy = rows > 1 ? roomH / (rows - 1) : roomH / 2;
+  const insetX = roomW * 0.15;
+  const insetY = roomH * 0.15;
+  const innerW = Math.max(0, roomW - insetX * 2);
+  const innerH = Math.max(0, roomH - insetY * 2);
+
+  const dx = cols > 1 ? innerW / (cols - 1) : 0;
+  const dy = rows > 1 ? innerH / (rows - 1) : 0;
 
   ctx.fillStyle = "#ffd76a";
+  ctx.strokeStyle = "#ffd76a";
+  ctx.shadowColor = "#ffd76a";
+  ctx.shadowBlur = 6;
+  ctx.lineWidth = 1;
+
   let placed = 0;
   for (let i = 0; i < cols && placed < count; i += 1) {
     for (let j = 0; j < rows && placed < count; j += 1) {
-      const x = cols > 1 ? ox + i * dx : ox + roomW / 2;
-      const y = rows > 1 ? oy + j * dy : oy + roomH / 2;
+      const x = cols > 1 ? ox + insetX + i * dx : ox + roomW / 2;
+      const y = rows > 1 ? oy + insetY + j * dy : oy + roomH / 2;
+
       ctx.beginPath();
-      ctx.arc(x, y, 4, 0, Math.PI * 2);
+      ctx.arc(x, y, 5, 0, Math.PI * 2);
       ctx.fill();
+
+      ctx.beginPath();
+      ctx.moveTo(x - 8, y);
+      ctx.lineTo(x + 8, y);
+      ctx.moveTo(x, y - 8);
+      ctx.lineTo(x, y + 8);
+      ctx.stroke();
+
       placed += 1;
     }
   }
 
+  ctx.shadowBlur = 0;
   ctx.fillStyle = "#a8b3d9";
   ctx.font = "12px sans-serif";
-  ctx.fillText(`미리보기: ${count}개`, 12, 18);
+  ctx.fillText(`미리보기: ${count}개 (${cols}×${rows} 배열)`, 12, 18);
 }
 
 function calcSingle() {
@@ -1575,11 +1611,9 @@ function resetDefaults() {
   els.roomHeight.value = "6000";
   els.roomArea.value = "";
 
-  els.singleOutput.textContent = "";
   els.bulkInput.value = "회의실A,9000,6000,,400\n사무실1,12000,8000,,400\n복도,20000,2500,,200";
   bulkResults = [];
   renderBulkTable([]);
-  els.lispOutput.value = "";
 
   els.cadUnit.value = "mm";
   els.cadMinArea.value = "3";
@@ -1590,6 +1624,8 @@ function resetDefaults() {
   els.cadTextOffset.value = "300";
   els.cadFile.value = "";
 
+  presetButtons.forEach((btn) => btn.classList.remove("active"));
+
   cadState.file = null;
   cadState.extension = "";
   cadState.content = null;
@@ -1597,9 +1633,11 @@ function resetDefaults() {
   cadState.placements = [];
 
   renderCadRooms([]);
-  drawSinglePreview(1, 1, 0);
   setCadStatus("CAD 파일을 업로드한 뒤 ‘방 자동 인식’을 실행하세요.");
   validateAllInputs();
+  calcSingle();
+  calcBulk();
+  generateLispCode();
 }
 
 function setupCollapsibleCards() {
@@ -1607,6 +1645,16 @@ function setupCollapsibleCards() {
   cards.forEach((card) => {
     const heading = card.querySelector(":scope > h2");
     if (!heading) return;
+
+    let body = card.querySelector(":scope > .card-body");
+    if (!body) {
+      body = document.createElement("div");
+      body.className = "card-body";
+      const children = Array.from(card.children).filter((child) => child !== heading);
+      children.forEach((child) => body.appendChild(child));
+      card.appendChild(body);
+    }
+
     heading.title = "클릭해서 접기/펼치기";
     heading.addEventListener("click", () => {
       card.classList.toggle("collapsed");
@@ -1619,6 +1667,7 @@ function bindEvents() {
     applyKsLux();
     calcSingle();
     calcBulk();
+    generateLispCode();
   });
   els.resetBtn.addEventListener("click", resetDefaults);
 
@@ -1641,11 +1690,13 @@ function bindEvents() {
     applyKsLux();
     calcSingle();
     calcBulk();
+    generateLispCode();
   });
   els.ksLevel.addEventListener("change", () => {
     applyKsLux();
     calcSingle();
     calcBulk();
+    generateLispCode();
   });
   els.uMode.addEventListener("change", () => {
     calcSingle();
@@ -1675,6 +1726,7 @@ function bindEvents() {
     input.addEventListener("change", () => {
       calcSingle();
       calcBulk();
+      generateLispCode();
     });
   });
 
