@@ -617,16 +617,27 @@ function downloadLisp() {
   downloadFile("qqq_auto.lsp", els.lispOutput.value, "text/plain;charset=utf-8");
 }
 
-function downloadFile(filename, text, mimeType) {
-  const blob = new Blob([text], { type: mimeType });
+function toDownloadPayload(data) {
+  if (data instanceof Uint8Array) return data;
+  if (data instanceof ArrayBuffer) return new Uint8Array(data);
+  if (typeof data === "string") return new TextEncoder().encode(data);
+  return new TextEncoder().encode(String(data ?? ""));
+}
+
+function downloadFile(filename, data, mimeType) {
+  const payload = toDownloadPayload(data);
+  const blob = new Blob([payload], { type: mimeType || "application/octet-stream" });
   const url = URL.createObjectURL(blob);
+
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+
+  // Delay revoke for better compatibility on Safari/iOS large-file downloads.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 function getCadConfig() {
@@ -740,11 +751,8 @@ async function loadCadFileFromInput() {
   cadState.rooms = [];
   cadState.placements = [];
 
-  if (ext === "dxf") {
-    cadState.content = new TextDecoder("utf-8").decode(buffer);
-  } else {
-    cadState.content = buffer;
-  }
+  // Keep original bytes for both DXF and DWG to avoid encoding loss on non-ASCII drawings.
+  cadState.content = buffer;
 
   setCadStatus(`파일 로드 완료: ${file.name} (${ext.toUpperCase()})`);
 }
@@ -1092,6 +1100,26 @@ function appendPlacementEntities(lib, database, placements, cadCfg, common) {
   });
 }
 
+function validateExportedDxf(lib, dxfContent) {
+  const checkDb = new lib.DRW_Database();
+  const checkHandler = new lib.DRW_FileHandler();
+  checkHandler.database = checkDb;
+
+  let ok = false;
+  try {
+    const reader = new lib.DRW_DxfRW(dxfContent);
+    ok = reader.read(checkHandler, false);
+    reader.delete();
+  } catch (error) {
+    ok = false;
+  } finally {
+    checkHandler.delete();
+    checkDb.delete();
+  }
+
+  return ok;
+}
+
 async function analyzeCad() {
   if (!cadState.content || !cadState.extension) {
     await loadCadFileFromInput();
@@ -1147,18 +1175,25 @@ async function exportCadResult() {
     parsed = await parseCadDatabase(cadState.content, cadState.extension);
     appendPlacementEntities(parsed.lib, parsed.database, cadState.placements, cadCfg, common);
 
+    const targetVersion = parsed.lib.DRW_Version.AC1015 || parsed.lib.DRW_Version.AC1021;
     const output = parsed.fileHandler.fileExport(
-      parsed.lib.DRW_Version.AC1021,
+      targetVersion,
       false,
       parsed.database,
       false,
     );
 
+    const isValid = validateExportedDxf(parsed.lib, output);
+    if (!isValid) {
+      throw new Error("생성된 DXF 파일 검증에 실패했습니다. 설정을 조정한 뒤 다시 시도해주세요.");
+    }
+
     const baseName = cadState.file.name.replace(/\.[^.]+$/, "");
     const outputName = `${baseName}_lighting_auto.dxf`;
-    downloadFile(outputName, output, "application/dxf;charset=utf-8");
+    const sizeMb = (toDownloadPayload(output).byteLength / (1024 * 1024)).toFixed(2);
+    downloadFile(outputName, output, "application/dxf");
 
-    setCadStatus(`결과 파일 생성 완료: ${outputName}\n다운로드를 확인해주세요.`);
+    setCadStatus(`결과 파일 생성 완료: ${outputName}\n파일 크기: ${sizeMb} MB\n다운로드를 확인해주세요.`);
   } finally {
     if (parsed?.fileHandler) parsed.fileHandler.delete();
     if (parsed?.database) parsed.database.delete();
