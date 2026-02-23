@@ -12,6 +12,17 @@ const KS_TABLE = {
   K: { min: 6000, std: 10000, max: 15000, label: "매우 특별한 시작업" },
 };
 
+const CAD_DEFAULT_TEXT_HEIGHT_MM = 150;
+
+const cadState = {
+  module: null,
+  file: null,
+  extension: "",
+  content: null,
+  rooms: [],
+  placements: [],
+};
+
 const els = {
   floorHeight: document.getElementById("floorHeight"),
   lumens: document.getElementById("lumens"),
@@ -41,6 +52,22 @@ const els = {
   downloadLispBtn: document.getElementById("downloadLispBtn"),
   lispOutput: document.getElementById("lispOutput"),
 
+  cadFile: document.getElementById("cadFile"),
+  cadUnit: document.getElementById("cadUnit"),
+  cadMinArea: document.getElementById("cadMinArea"),
+  cadMaxArea: document.getElementById("cadMaxArea"),
+  cadGrid: document.getElementById("cadGrid"),
+  cadOutputLayer: document.getElementById("cadOutputLayer"),
+  cadSymbolRadius: document.getElementById("cadSymbolRadius"),
+  cadTextOffset: document.getElementById("cadTextOffset"),
+  cadAnalyzeBtn: document.getElementById("cadAnalyzeBtn"),
+  cadLayoutBtn: document.getElementById("cadLayoutBtn"),
+  cadExportBtn: document.getElementById("cadExportBtn"),
+  cadStatus: document.getElementById("cadStatus"),
+  cadRoomTableBody: document.querySelector("#cadRoomTable tbody"),
+  cadRecommendedTotal: document.getElementById("cadRecommendedTotal"),
+  cadPlacedTotal: document.getElementById("cadPlacedTotal"),
+
   ksSummary: document.getElementById("ksSummary"),
 };
 
@@ -61,6 +88,107 @@ function fmt(value, digits = 2) {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   });
+}
+
+function parseCircuits(value) {
+  return String(value || "")
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+function unitToMmFactor(unit) {
+  if (unit === "m") return 1000;
+  if (unit === "cm") return 10;
+  return 1;
+}
+
+function rawLengthToMm(rawLength, unit) {
+  return rawLength * unitToMmFactor(unit);
+}
+
+function mmToRawLength(mmLength, unit) {
+  return mmLength / unitToMmFactor(unit);
+}
+
+function rawAreaToM2(rawArea, unit) {
+  const mmFactor = unitToMmFactor(unit);
+  const areaMm2 = rawArea * mmFactor * mmFactor;
+  return areaMm2 / 1_000_000;
+}
+
+function samePoint(a, b, eps = 1e-6) {
+  return Math.abs(a.x - b.x) <= eps && Math.abs(a.y - b.y) <= eps;
+}
+
+function polygonArea(points) {
+  if (!points || points.length < 3) return 0;
+  let sum = 0;
+  for (let i = 0; i < points.length; i += 1) {
+    const p1 = points[i];
+    const p2 = points[(i + 1) % points.length];
+    sum += p1.x * p2.y - p2.x * p1.y;
+  }
+  return sum / 2;
+}
+
+function bboxOfPoints(points) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  points.forEach((p) => {
+    if (p.x < minX) minX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y > maxY) maxY = p.y;
+  });
+
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    width: maxX - minX,
+    height: maxY - minY,
+  };
+}
+
+function pointOnSegment(px, py, x1, y1, x2, y2, eps = 1e-6) {
+  const cross = (px - x1) * (y2 - y1) - (py - y1) * (x2 - x1);
+  if (Math.abs(cross) > eps) return false;
+
+  const dot = (px - x1) * (px - x2) + (py - y1) * (py - y2);
+  return dot <= eps;
+}
+
+function pointInPolygon(point, polygon) {
+  const x = point.x;
+  const y = point.y;
+
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
+    const xi = polygon[i].x;
+    const yi = polygon[i].y;
+    const xj = polygon[j].x;
+    const yj = polygon[j].y;
+
+    if (pointOnSegment(x, y, xi, yi, xj, yj)) {
+      return true;
+    }
+
+    const intersect = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / ((yj - yi) || 1e-12) + xi;
+    if (intersect) inside = !inside;
+  }
+
+  return inside;
+}
+
+function snapToGrid(value, grid) {
+  if (grid <= 0) return value;
+  const snapped = Math.round(value / grid) * grid;
+  return snapped <= 0 ? grid : snapped;
 }
 
 function populateKsUi() {
@@ -501,6 +629,557 @@ function downloadFile(filename, text, mimeType) {
   URL.revokeObjectURL(url);
 }
 
+function getCadConfig() {
+  const unit = els.cadUnit.value;
+  const minAreaM2 = toNum(els.cadMinArea.value, 0);
+  const maxAreaM2 = toNum(els.cadMaxArea.value, Number.POSITIVE_INFINITY);
+
+  return {
+    unit,
+    minAreaM2,
+    maxAreaM2,
+    gridMm: Math.max(10, toNum(els.cadGrid.value, 300)),
+    outputLayer: els.cadOutputLayer.value.trim() || "LIGHT_AUTO",
+    symbolRadiusMm: Math.max(1, toNum(els.cadSymbolRadius.value, 150)),
+    textOffsetMm: Math.max(0, toNum(els.cadTextOffset.value, 300)),
+  };
+}
+
+function setCadStatus(message, append = false) {
+  if (append) {
+    els.cadStatus.textContent = `${els.cadStatus.textContent}\n${message}`.trim();
+  } else {
+    els.cadStatus.textContent = message;
+  }
+}
+
+function renderCadRooms(rows) {
+  els.cadRoomTableBody.innerHTML = "";
+
+  let recTotal = 0;
+  let placedTotal = 0;
+
+  rows.forEach((room) => {
+    recTotal += room.recommendedCount || 0;
+    placedTotal += room.placedCount || 0;
+
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${room.name}</td>
+      <td>${room.layer || "-"}</td>
+      <td>${fmt(room.areaM2, 2)}</td>
+      <td>${fmt(room.ri, 2)}</td>
+      <td>${fmt(room.u, 2)}</td>
+      <td>${(room.recommendedCount || 0).toLocaleString("ko-KR")}</td>
+      <td>${(room.placedCount || 0).toLocaleString("ko-KR")}</td>
+    `;
+    els.cadRoomTableBody.appendChild(tr);
+  });
+
+  els.cadRecommendedTotal.textContent = recTotal.toLocaleString("ko-KR");
+  els.cadPlacedTotal.textContent = placedTotal.toLocaleString("ko-KR");
+}
+
+async function ensureCadModule() {
+  if (cadState.module) return cadState.module;
+  if (typeof window.createModule !== "function") {
+    throw new Error("CAD 엔진(libdxfrw) 로딩에 실패했습니다. 새로고침 후 다시 시도해주세요.");
+  }
+
+  setCadStatus("CAD 엔진 로딩 중...");
+  cadState.module = await window.createModule();
+  return cadState.module;
+}
+
+function inferCadTypeFromName(fileName) {
+  const name = String(fileName || "");
+  const dot = name.lastIndexOf(".");
+  if (dot >= 0) {
+    const ext = name.slice(dot + 1).toLowerCase();
+    if (ext === "dxf" || ext === "dwg") return ext;
+  }
+  return "";
+}
+
+function inferCadTypeFromBuffer(buffer) {
+  const headBytes = new Uint8Array(buffer.slice(0, 128));
+  const headText = new TextDecoder("ascii").decode(headBytes);
+
+  // DWG signature examples: AC1015, AC1024, AC1032...
+  if (/^AC10\d{2}/.test(headText)) {
+    return "dwg";
+  }
+
+  // DXF ASCII often starts with: "0\nSECTION"
+  if (/SECTION/i.test(headText) || /\nENTITIES\n/i.test(headText)) {
+    return "dxf";
+  }
+
+  return "";
+}
+
+async function loadCadFileFromInput() {
+  const file = els.cadFile.files?.[0];
+  if (!file) {
+    throw new Error("DXF 또는 DWG 파일을 먼저 업로드해주세요.");
+  }
+
+  let ext = inferCadTypeFromName(file.name);
+  const buffer = await file.arrayBuffer();
+
+  if (!ext) {
+    ext = inferCadTypeFromBuffer(buffer);
+  }
+
+  if (!["dxf", "dwg"].includes(ext)) {
+    throw new Error("파일 형식을 판별하지 못했습니다. 확장자를 .dxf 또는 .dwg로 지정해주세요.");
+  }
+
+  cadState.file = file;
+  cadState.extension = ext;
+  cadState.rooms = [];
+  cadState.placements = [];
+
+  if (ext === "dxf") {
+    cadState.content = new TextDecoder("utf-8").decode(buffer);
+  } else {
+    cadState.content = buffer;
+  }
+
+  setCadStatus(`파일 로드 완료: ${file.name} (${ext.toUpperCase()})`);
+}
+
+async function parseCadDatabase(content, extension) {
+  const lib = await ensureCadModule();
+  const database = new lib.DRW_Database();
+  const fileHandler = new lib.DRW_FileHandler();
+  fileHandler.database = database;
+
+  let ok = false;
+
+  try {
+    if (extension === "dxf") {
+      const dxf = new lib.DRW_DxfRW(content);
+      ok = dxf.read(fileHandler, false);
+      dxf.delete();
+    } else {
+      const dwg = new lib.DRW_DwgR(content);
+      ok = dwg.read(fileHandler, false);
+      dwg.delete();
+    }
+  } catch (error) {
+    fileHandler.delete();
+    database.delete();
+    throw error;
+  }
+
+  if (!ok) {
+    const entitySize = database?.mBlock?.entities?.size ? database.mBlock.entities.size() : 0;
+    if (entitySize <= 0) {
+      fileHandler.delete();
+      database.delete();
+      throw new Error("도면 파싱에 실패했습니다. 손상 파일이거나 지원되지 않는 버전일 수 있습니다.");
+    }
+  }
+
+  return { lib, database, fileHandler };
+}
+
+function extractPolylineVertices(entity, lib) {
+  if (entity.eType === lib.DRW_ETYPE.LWPOLYLINE) {
+    const list = entity.getVertexList();
+    const points = [];
+    for (let i = 0, size = list.size(); i < size; i += 1) {
+      const v = list.get(i);
+      if (!v) continue;
+      points.push({ x: v.x, y: v.y });
+    }
+    return {
+      points,
+      flags: entity.flags || 0,
+    };
+  }
+
+  if (entity.eType === lib.DRW_ETYPE.POLYLINE) {
+    const list = entity.getVertexList();
+    const points = [];
+    for (let i = 0, size = list.size(); i < size; i += 1) {
+      const v = list.get(i);
+      if (!v) continue;
+      const bp = v.basePoint;
+      const x = bp?.x;
+      const y = bp?.y;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      points.push({ x, y });
+    }
+    return {
+      points,
+      flags: entity.flags || 0,
+    };
+  }
+
+  return null;
+}
+
+function isClosedPolyline(points, flags) {
+  if (points.length < 3) return false;
+  if ((flags & 1) === 1) return true;
+  return samePoint(points[0], points[points.length - 1]);
+}
+
+function buildRoomFromPolyline(polylineInfo, roomIndex, layer, common, cadCfg) {
+  const points = [...polylineInfo.points];
+  if (samePoint(points[0], points[points.length - 1])) {
+    points.pop();
+  }
+
+  if (points.length < 3) return null;
+
+  const areaRaw = Math.abs(polygonArea(points));
+  const areaM2 = rawAreaToM2(areaRaw, cadCfg.unit);
+
+  if (areaM2 < cadCfg.minAreaM2 || areaM2 > cadCfg.maxAreaM2) {
+    return null;
+  }
+
+  const bboxRaw = bboxOfPoints(points);
+  const widthMm = rawLengthToMm(bboxRaw.width, cadCfg.unit);
+  const heightMm = rawLengthToMm(bboxRaw.height, cadCfg.unit);
+
+  if (widthMm <= 0 || heightMm <= 0) return null;
+
+  const result = computeLighting({
+    floorHeight: common.floorHeight,
+    lux: common.targetLux,
+    lumens: common.lumens,
+    maintenanceFactor: common.maintenanceFactor,
+    widthMm,
+    heightMm,
+    areaM2,
+  });
+
+  return {
+    id: roomIndex,
+    name: `ROOM_${roomIndex}`,
+    layer: layer || "0",
+    points,
+    bboxRaw,
+    areaM2,
+    ri: result.ri,
+    u: result.u,
+    recommendedCount: result.recommendedCount,
+    placedCount: 0,
+  };
+}
+
+function detectRooms(lib, database, common, cadCfg) {
+  const block = database.mBlock;
+  if (!block || !block.entities) {
+    throw new Error("모델 공간 엔티티를 찾지 못했습니다.");
+  }
+
+  const rooms = [];
+  const entities = block.entities;
+  let roomIndex = 1;
+
+  for (let i = 0, size = entities.size(); i < size; i += 1) {
+    const entity = entities.get(i);
+    if (!entity) continue;
+
+    const polyline = extractPolylineVertices(entity, lib);
+    if (!polyline) continue;
+    if (!isClosedPolyline(polyline.points, polyline.flags)) continue;
+
+    const room = buildRoomFromPolyline(polyline, roomIndex, entity.layer, common, cadCfg);
+    if (!room) continue;
+
+    rooms.push(room);
+    roomIndex += 1;
+  }
+
+  rooms.sort((a, b) => b.areaM2 - a.areaM2);
+  rooms.forEach((room, idx) => {
+    room.id = idx + 1;
+    room.name = `${room.layer || "ROOM"}_${String(idx + 1).padStart(3, "0")}`;
+  });
+
+  return rooms;
+}
+
+function pointKey(pt, digits = 4) {
+  return `${pt.x.toFixed(digits)}:${pt.y.toFixed(digits)}`;
+}
+
+function generateRoomPlacementPoints(room, targetCount, cadCfg) {
+  if (!targetCount || targetCount <= 0) return [];
+
+  const gridRaw = mmToRawLength(cadCfg.gridMm, cadCfg.unit);
+  const { minX, minY, maxX, maxY, width, height } = room.bboxRaw;
+
+  if (width <= 0 || height <= 0) return [];
+
+  const ratio = width / Math.max(height, 1e-9);
+  let cols = Math.max(1, Math.round(Math.sqrt(targetCount * ratio)));
+  let rows = Math.max(1, Math.round(targetCount / cols));
+
+  const spacingX = Math.max(gridRaw, snapToGrid(width / Math.max(cols, 1), gridRaw));
+  const spacingY = Math.max(gridRaw, snapToGrid(height / Math.max(rows, 1), gridRaw));
+
+  const xStart = minX + Math.max(0, (width - spacingX * (cols - 1)) / 2);
+  const yStart = minY + Math.max(0, (height - spacingY * (rows - 1)) / 2);
+
+  const points = [];
+  const keys = new Set();
+
+  for (let i = 0; i < cols; i += 1) {
+    for (let j = 0; j < rows; j += 1) {
+      const candidate = {
+        x: xStart + i * spacingX,
+        y: yStart + j * spacingY,
+      };
+
+      if (!pointInPolygon(candidate, room.points)) continue;
+
+      const key = pointKey(candidate);
+      if (keys.has(key)) continue;
+
+      keys.add(key);
+      points.push(candidate);
+
+      if (points.length >= targetCount) {
+        return points;
+      }
+    }
+  }
+
+  // fallback: denser scan
+  const fallbackStep = Math.max(gridRaw / 2, Math.min(width, height) / 20);
+  for (let y = minY + fallbackStep / 2; y <= maxY - fallbackStep / 2; y += fallbackStep) {
+    for (let x = minX + fallbackStep / 2; x <= maxX - fallbackStep / 2; x += fallbackStep) {
+      const candidate = { x, y };
+      if (!pointInPolygon(candidate, room.points)) continue;
+
+      const key = pointKey(candidate);
+      if (keys.has(key)) continue;
+
+      keys.add(key);
+      points.push(candidate);
+      if (points.length >= targetCount) return points;
+    }
+  }
+
+  // fallback: random fill
+  let attempts = 0;
+  const maxAttempts = targetCount * 200;
+  while (points.length < targetCount && attempts < maxAttempts) {
+    const candidate = {
+      x: minX + Math.random() * width,
+      y: minY + Math.random() * height,
+    };
+
+    if (!pointInPolygon(candidate, room.points)) {
+      attempts += 1;
+      continue;
+    }
+
+    const key = pointKey(candidate, 2);
+    if (keys.has(key)) {
+      attempts += 1;
+      continue;
+    }
+
+    keys.add(key);
+    points.push(candidate);
+    attempts += 1;
+  }
+
+  return points;
+}
+
+function runCadLayout() {
+  if (!cadState.rooms.length) {
+    throw new Error("먼저 '방 자동 인식'을 실행해주세요.");
+  }
+
+  const circuits = parseCircuits(getCommonInputs().circuits);
+  if (!circuits.length) circuits.push("1");
+
+  const cadCfg = getCadConfig();
+  let circuitIdx = 0;
+  const placements = [];
+
+  cadState.rooms.forEach((room) => {
+    const pts = generateRoomPlacementPoints(room, room.recommendedCount, cadCfg);
+    room.placedCount = pts.length;
+
+    pts.forEach((pt) => {
+      placements.push({
+        x: pt.x,
+        y: pt.y,
+        roomId: room.id,
+        roomName: room.name,
+        circuit: circuits[circuitIdx % circuits.length],
+      });
+      circuitIdx += 1;
+    });
+  });
+
+  cadState.placements = placements;
+  renderCadRooms(cadState.rooms);
+
+  const recTotal = cadState.rooms.reduce((sum, room) => sum + (room.recommendedCount || 0), 0);
+  const placedTotal = cadState.rooms.reduce((sum, room) => sum + (room.placedCount || 0), 0);
+
+  setCadStatus(
+    `자동 배치 계산 완료\n` +
+      `- 방 수: ${cadState.rooms.length}\n` +
+      `- 추천 총수량: ${recTotal.toLocaleString("ko-KR")}\n` +
+      `- 실제 배치수량: ${placedTotal.toLocaleString("ko-KR")}`,
+  );
+}
+
+function ensureOutputLayer(lib, database, layerName) {
+  const layers = database.layers;
+  for (let i = 0, size = layers.size(); i < size; i += 1) {
+    const layer = layers.get(i);
+    if (layer?.name === layerName) return;
+  }
+
+  const layer = new lib.DRW_Layer();
+  layer.name = layerName;
+  layers.push_back(layer);
+}
+
+function appendPlacementEntities(lib, database, placements, cadCfg, common) {
+  const block = database.mBlock;
+  if (!block || !block.entities) {
+    throw new Error("출력 대상 모델 공간을 찾지 못했습니다.");
+  }
+
+  ensureOutputLayer(lib, database, cadCfg.outputLayer);
+
+  const radiusRaw = mmToRawLength(cadCfg.symbolRadiusMm, cadCfg.unit);
+  const textOffsetRaw = mmToRawLength(cadCfg.textOffsetMm, cadCfg.unit);
+  const textHeightRaw = mmToRawLength(CAD_DEFAULT_TEXT_HEIGHT_MM, cadCfg.unit);
+
+  placements.forEach((item) => {
+    const circle = new lib.DRW_Circle();
+    circle.layer = cadCfg.outputLayer;
+    circle.color = 2;
+    circle.basePoint.x = item.x;
+    circle.basePoint.y = item.y;
+    circle.basePoint.z = 0;
+    circle.radius = Math.max(radiusRaw, 1);
+    block.entities.push_back(circle);
+
+    const text = new lib.DRW_Text();
+    text.layer = cadCfg.outputLayer;
+    text.color = 1;
+    text.text = item.circuit;
+    text.style = common.fontStyle || "Standard";
+    text.height = Math.max(textHeightRaw, 1);
+
+    const tx = item.x + textOffsetRaw;
+    const ty = item.y - textOffsetRaw;
+    text.basePoint.x = tx;
+    text.basePoint.y = ty;
+    text.basePoint.z = 0;
+    text.secPoint.x = tx;
+    text.secPoint.y = ty;
+    text.secPoint.z = 0;
+
+    block.entities.push_back(text);
+  });
+}
+
+async function analyzeCad() {
+  if (!cadState.content || !cadState.extension) {
+    await loadCadFileFromInput();
+  }
+
+  const common = getCommonInputs();
+  const cadCfg = getCadConfig();
+
+  setCadStatus("도면 분석 중...");
+
+  let parsed;
+  try {
+    parsed = await parseCadDatabase(cadState.content, cadState.extension);
+    const rooms = detectRooms(parsed.lib, parsed.database, common, cadCfg);
+    cadState.rooms = rooms;
+    cadState.placements = [];
+
+    renderCadRooms(rooms);
+
+    const recTotal = rooms.reduce((sum, room) => sum + room.recommendedCount, 0);
+    setCadStatus(
+      `도면 분석 완료\n` +
+        `- 인식된 방 수: ${rooms.length}\n` +
+        `- 추천 총수량: ${recTotal.toLocaleString("ko-KR")}\n` +
+        `- 기준: 닫힌 폴리라인 + 면적 ${cadCfg.minAreaM2}~${cadCfg.maxAreaM2}㎡`,
+    );
+  } finally {
+    if (parsed?.fileHandler) parsed.fileHandler.delete();
+    if (parsed?.database) parsed.database.delete();
+  }
+}
+
+async function exportCadResult() {
+  if (!cadState.content || !cadState.extension || !cadState.file) {
+    throw new Error("먼저 CAD 파일을 업로드해주세요.");
+  }
+
+  if (!cadState.rooms.length) {
+    await analyzeCad();
+  }
+
+  if (!cadState.placements.length) {
+    runCadLayout();
+  }
+
+  const cadCfg = getCadConfig();
+  const common = getCommonInputs();
+
+  setCadStatus("결과 DXF 생성 중...");
+
+  let parsed;
+  try {
+    parsed = await parseCadDatabase(cadState.content, cadState.extension);
+    appendPlacementEntities(parsed.lib, parsed.database, cadState.placements, cadCfg, common);
+
+    const output = parsed.fileHandler.fileExport(
+      parsed.lib.DRW_Version.AC1021,
+      false,
+      parsed.database,
+      false,
+    );
+
+    const baseName = cadState.file.name.replace(/\.[^.]+$/, "");
+    const outputName = `${baseName}_lighting_auto.dxf`;
+    downloadFile(outputName, output, "application/dxf;charset=utf-8");
+
+    setCadStatus(`결과 파일 생성 완료: ${outputName}\n다운로드를 확인해주세요.`);
+  } finally {
+    if (parsed?.fileHandler) parsed.fileHandler.delete();
+    if (parsed?.database) parsed.database.delete();
+  }
+}
+
+async function runWithButtonLock(button, action) {
+  if (!button) {
+    await action();
+    return;
+  }
+
+  const prev = button.disabled;
+  button.disabled = true;
+  try {
+    await action();
+  } finally {
+    button.disabled = prev;
+  }
+}
+
 function resetDefaults() {
   els.floorHeight.value = "2700";
   els.lumens.value = "4400";
@@ -520,6 +1199,24 @@ function resetDefaults() {
   bulkResults = [];
   renderBulkTable([]);
   els.lispOutput.value = "";
+
+  els.cadUnit.value = "mm";
+  els.cadMinArea.value = "3";
+  els.cadMaxArea.value = "5000";
+  els.cadGrid.value = "300";
+  els.cadOutputLayer.value = "LIGHT_AUTO";
+  els.cadSymbolRadius.value = "150";
+  els.cadTextOffset.value = "300";
+  els.cadFile.value = "";
+
+  cadState.file = null;
+  cadState.extension = "";
+  cadState.content = null;
+  cadState.rooms = [];
+  cadState.placements = [];
+
+  renderCadRooms([]);
+  setCadStatus("CAD 파일을 업로드한 뒤 ‘방 자동 인식’을 실행하세요.");
 }
 
 function bindEvents() {
@@ -535,6 +1232,48 @@ function bindEvents() {
 
   els.ksClass.addEventListener("change", applyKsLux);
   els.ksLevel.addEventListener("change", applyKsLux);
+
+  els.cadFile.addEventListener("change", async () => {
+    try {
+      await loadCadFileFromInput();
+      renderCadRooms([]);
+    } catch (error) {
+      setCadStatus(`오류: ${error.message}`);
+    }
+  });
+
+  els.cadAnalyzeBtn.addEventListener("click", async () => {
+    await runWithButtonLock(els.cadAnalyzeBtn, async () => {
+      try {
+        await analyzeCad();
+      } catch (error) {
+        setCadStatus(`오류: ${error.message}`);
+      }
+    });
+  });
+
+  els.cadLayoutBtn.addEventListener("click", async () => {
+    await runWithButtonLock(els.cadLayoutBtn, async () => {
+      try {
+        if (!cadState.rooms.length) {
+          await analyzeCad();
+        }
+        runCadLayout();
+      } catch (error) {
+        setCadStatus(`오류: ${error.message}`);
+      }
+    });
+  });
+
+  els.cadExportBtn.addEventListener("click", async () => {
+    await runWithButtonLock(els.cadExportBtn, async () => {
+      try {
+        await exportCadResult();
+      } catch (error) {
+        setCadStatus(`오류: ${error.message}`);
+      }
+    });
+  });
 }
 
 (function init() {
@@ -544,4 +1283,6 @@ function bindEvents() {
   calcSingle();
   calcBulk();
   generateLispCode();
+  renderCadRooms([]);
+  setCadStatus("CAD 파일을 업로드한 뒤 ‘방 자동 인식’을 실행하세요.");
 })();
