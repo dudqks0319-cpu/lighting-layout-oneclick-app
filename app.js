@@ -32,6 +32,7 @@ const els = {
   ksLevel: document.getElementById("ksLevel"),
   targetLux: document.getElementById("targetLux"),
   fontStyle: document.getElementById("fontStyle"),
+  uMode: document.getElementById("uMode"),
 
   applyKsBtn: document.getElementById("applyKsBtn"),
   resetBtn: document.getElementById("resetBtn"),
@@ -41,6 +42,7 @@ const els = {
   roomArea: document.getElementById("roomArea"),
   calcSingleBtn: document.getElementById("calcSingleBtn"),
   singleOutput: document.getElementById("singleOutput"),
+  singlePreview: document.getElementById("singlePreview"),
 
   bulkInput: document.getElementById("bulkInput"),
   calcBulkBtn: document.getElementById("calcBulkBtn"),
@@ -71,6 +73,7 @@ const els = {
   ksSummary: document.getElementById("ksSummary"),
 };
 
+const presetButtons = Array.from(document.querySelectorAll(".preset-btn"));
 let bulkResults = [];
 
 function toNum(value, fallback = 0) {
@@ -215,7 +218,39 @@ function applyKsLux() {
   els.targetLux.value = String(lux);
 }
 
-function getUByRi(ri) {
+const PRESET_MAP = {
+  office: { ksClass: "G", ksLevel: "std", targetLux: 400, floorHeight: 2700 },
+  corridor: { ksClass: "F", ksLevel: "std", targetLux: 200, floorHeight: 2700 },
+  storage: { ksClass: "E", ksLevel: "std", targetLux: 100, floorHeight: 2700 },
+};
+
+function applyPreset(name) {
+  const preset = PRESET_MAP[name];
+  if (!preset) return;
+
+  els.ksClass.value = preset.ksClass;
+  els.ksLevel.value = preset.ksLevel;
+  els.floorHeight.value = String(preset.floorHeight);
+  applyKsLux();
+
+  if (Number.isFinite(preset.targetLux)) {
+    els.targetLux.value = String(preset.targetLux);
+  }
+
+  validateAllInputs();
+  calcSingle();
+  calcBulk();
+}
+
+const U_POINTS = [
+  { ri: 0.0, u: 0.45 },
+  { ri: 1.0, u: 0.55 },
+  { ri: 1.5, u: 0.65 },
+  { ri: 2.5, u: 0.75 },
+  { ri: 4.0, u: 0.8 },
+];
+
+function getUByRiStep(ri) {
   if (ri >= 4.0) return 0.8;
   if (ri >= 2.5) return 0.75;
   if (ri >= 1.5) return 0.65;
@@ -223,7 +258,36 @@ function getUByRi(ri) {
   return 0.45;
 }
 
-function computeLighting({ floorHeight, lux, lumens, maintenanceFactor, widthMm, heightMm, areaM2 }) {
+function getUByRiInterpolated(ri) {
+  if (ri <= U_POINTS[0].ri) return U_POINTS[0].u;
+  if (ri >= U_POINTS[U_POINTS.length - 1].ri) return U_POINTS[U_POINTS.length - 1].u;
+
+  for (let i = 0; i < U_POINTS.length - 1; i += 1) {
+    const left = U_POINTS[i];
+    const right = U_POINTS[i + 1];
+    if (ri >= left.ri && ri <= right.ri) {
+      const t = (ri - left.ri) / (right.ri - left.ri || 1);
+      return left.u + (right.u - left.u) * t;
+    }
+  }
+
+  return getUByRiStep(ri);
+}
+
+function getUByRi(ri, mode = "interp") {
+  return mode === "step" ? getUByRiStep(ri) : getUByRiInterpolated(ri);
+}
+
+function computeLighting({
+  floorHeight,
+  lux,
+  lumens,
+  maintenanceFactor,
+  widthMm,
+  heightMm,
+  areaM2,
+  uMode = "interp",
+}) {
   if (floorHeight <= 850) throw new Error("층고는 850mm보다 커야 합니다.");
   if (lux <= 0) throw new Error("목표 조도는 0보다 커야 합니다.");
   if (lumens <= 0) throw new Error("등기구 광속은 0보다 커야 합니다.");
@@ -237,7 +301,7 @@ function computeLighting({ floorHeight, lux, lumens, maintenanceFactor, widthMm,
   const widthM = widthMm / 1000;
   const heightM = heightMm / 1000;
   const ri = areaM2 / (hEff * (widthM + heightM));
-  const u = getUByRi(ri);
+  const u = getUByRi(ri, uMode);
   const rawCount = (lux * areaM2) / (lumens * u * maintenanceFactor);
   const recommendedCount = Math.max(1, Math.ceil(rawCount));
 
@@ -258,16 +322,176 @@ function getCommonInputs() {
     circuits: els.circuits.value.trim(),
     targetLux: toNum(els.targetLux.value),
     fontStyle: els.fontStyle.value.trim() || "Standard",
+    uMode: els.uMode?.value || "interp",
   };
+}
+
+function normalizeRoomDimensions({ widthMm, heightMm, areaM2 }) {
+  let w = widthMm;
+  let h = heightMm;
+  const area = areaM2;
+  let assumedSquare = false;
+
+  if (area > 0 && (w <= 0 || h <= 0)) {
+    const side = Math.sqrt(area * 1_000_000);
+    w = side;
+    h = side;
+    assumedSquare = true;
+  }
+
+  return {
+    widthMm: w,
+    heightMm: h,
+    areaM2: area,
+    assumedSquare,
+  };
+}
+
+function setInputValidity(input, message = "") {
+  if (!input) return;
+  input.setCustomValidity(message || "");
+  input.classList.toggle("is-invalid", Boolean(message));
+}
+
+function validateNumberInput(input) {
+  if (!input) return true;
+  const raw = input.value;
+
+  if (raw === "") {
+    setInputValidity(input, "");
+    return true;
+  }
+
+  const n = Number(raw);
+  if (!Number.isFinite(n)) {
+    setInputValidity(input, "숫자 값을 입력해주세요.");
+    return false;
+  }
+
+  if (input.id === "floorHeight" && n <= 850) {
+    setInputValidity(input, "층고는 850mm보다 커야 합니다.");
+    return false;
+  }
+
+  if (input.id === "maintenanceFactor" && (n <= 0 || n > 1)) {
+    setInputValidity(input, "보수율은 0 초과 1 이하여야 합니다.");
+    return false;
+  }
+
+  if (input.id === "cadMaxArea") {
+    const min = Number(els.cadMinArea.value || 0);
+    if (n < min) {
+      setInputValidity(input, "최대 면적은 최소 면적보다 커야 합니다.");
+      return false;
+    }
+  }
+
+  if (input.id === "cadMinArea") {
+    const max = Number(els.cadMaxArea.value || Number.POSITIVE_INFINITY);
+    if (n > max) {
+      setInputValidity(input, "최소 면적은 최대 면적보다 작아야 합니다.");
+      return false;
+    }
+  }
+
+  setInputValidity(input, "");
+  return true;
+}
+
+function validateAllInputs() {
+  const numberInputs = Array.from(document.querySelectorAll("input[type='number']"));
+  return numberInputs.map(validateNumberInput).every(Boolean);
+}
+
+function drawSinglePreview(widthMm, heightMm, count) {
+  const canvas = els.singlePreview;
+  if (!canvas) return;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  ctx.fillStyle = "#070c1a";
+  ctx.fillRect(0, 0, w, h);
+
+  const margin = 24;
+  const drawW = w - margin * 2;
+  const drawH = h - margin * 2;
+  const ratio = widthMm / Math.max(heightMm, 1e-9);
+
+  let roomW = drawW;
+  let roomH = roomW / ratio;
+  if (roomH > drawH) {
+    roomH = drawH;
+    roomW = roomH * ratio;
+  }
+
+  const ox = (w - roomW) / 2;
+  const oy = (h - roomH) / 2;
+
+  ctx.strokeStyle = "#90b8ff";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(ox, oy, roomW, roomH);
+
+  const cols = Math.max(1, Math.round(Math.sqrt(count * ratio)));
+  const rows = Math.max(1, Math.round(count / cols));
+
+  const dx = cols > 1 ? roomW / (cols - 1) : roomW / 2;
+  const dy = rows > 1 ? roomH / (rows - 1) : roomH / 2;
+
+  ctx.fillStyle = "#ffd76a";
+  let placed = 0;
+  for (let i = 0; i < cols && placed < count; i += 1) {
+    for (let j = 0; j < rows && placed < count; j += 1) {
+      const x = cols > 1 ? ox + i * dx : ox + roomW / 2;
+      const y = rows > 1 ? oy + j * dy : oy + roomH / 2;
+      ctx.beginPath();
+      ctx.arc(x, y, 4, 0, Math.PI * 2);
+      ctx.fill();
+      placed += 1;
+    }
+  }
+
+  ctx.fillStyle = "#a8b3d9";
+  ctx.font = "12px sans-serif";
+  ctx.fillText(`미리보기: ${count}개`, 12, 18);
 }
 
 function calcSingle() {
   const common = getCommonInputs();
-  const widthMm = toNum(els.roomWidth.value);
-  const heightMm = toNum(els.roomHeight.value);
+
+  const singleInputs = [
+    els.floorHeight,
+    els.lumens,
+    els.maintenanceFactor,
+    els.targetLux,
+    els.roomWidth,
+    els.roomHeight,
+    els.roomArea,
+  ];
+  const singleValid = singleInputs.map(validateNumberInput).every(Boolean);
+  if (!singleValid) {
+    els.singleOutput.textContent = "오류: 입력값을 확인해주세요.";
+    drawSinglePreview(1, 1, 0);
+    return;
+  }
+
+  const widthInputMm = toNum(els.roomWidth.value);
+  const heightInputMm = toNum(els.roomHeight.value);
 
   const areaManual = toNum(els.roomArea.value, NaN);
-  const areaM2 = Number.isFinite(areaManual) && areaManual > 0 ? areaManual : (widthMm * heightMm) / 1_000_000;
+  const baseAreaM2 = Number.isFinite(areaManual) && areaManual > 0
+    ? areaManual
+    : (widthInputMm * heightInputMm) / 1_000_000;
+
+  const normalized = normalizeRoomDimensions({
+    widthMm: widthInputMm,
+    heightMm: heightInputMm,
+    areaM2: baseAreaM2,
+  });
 
   try {
     const result = computeLighting({
@@ -275,38 +499,42 @@ function calcSingle() {
       lux: common.targetLux,
       lumens: common.lumens,
       maintenanceFactor: common.maintenanceFactor,
-      widthMm,
-      heightMm,
-      areaM2,
+      widthMm: normalized.widthMm,
+      heightMm: normalized.heightMm,
+      areaM2: normalized.areaM2,
+      uMode: common.uMode,
     });
 
     const txt = [
       `[단일 실 계산 결과]`,
-      `면적: ${fmt(areaM2, 2)} ㎡`,
+      `면적: ${fmt(normalized.areaM2, 2)} ㎡`,
       `유효높이(Hm): ${fmt(result.hEff, 2)} m`,
       `실지수(RI): ${fmt(result.ri, 2)}`,
-      `이용률(U): ${fmt(result.u, 2)}`,
+      `이용률(U): ${fmt(result.u, 2)} (${common.uMode === "step" ? "계단식" : "보간"})`,
       `계산 수량(실수): ${fmt(result.rawCount, 2)} 개`,
       `추천 수량(올림): ${result.recommendedCount.toLocaleString("ko-KR")} 개`,
-    ].join("\n");
+      normalized.assumedSquare ? `※ 가로/세로가 없어서 정사각형으로 가정해 계산했습니다.` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
 
     els.singleOutput.textContent = txt;
+    drawSinglePreview(normalized.widthMm, normalized.heightMm, result.recommendedCount);
   } catch (error) {
     els.singleOutput.textContent = `오류: ${error.message}`;
+    drawSinglePreview(1, 1, 0);
   }
 }
 
 function parseCsvLine(line) {
   const cols = line.split(",").map((s) => s.trim());
-  if (cols.length < 3) return null;
+  if (cols.length < 1) return null;
 
   const name = cols[0] || `Room-${Math.random().toString(36).slice(2, 6)}`;
   const widthMm = toNum(cols[1], NaN);
   const heightMm = toNum(cols[2], NaN);
   const areaM2Raw = toNum(cols[3], NaN);
   const luxRaw = toNum(cols[4], NaN);
-
-  if (!Number.isFinite(widthMm) || !Number.isFinite(heightMm)) return null;
 
   return {
     name,
@@ -319,6 +547,15 @@ function parseCsvLine(line) {
 
 function calcBulk() {
   const common = getCommonInputs();
+
+  const bulkInputs = [els.floorHeight, els.lumens, els.maintenanceFactor, els.targetLux];
+  const bulkValid = bulkInputs.map(validateNumberInput).every(Boolean);
+  if (!bulkValid) {
+    bulkResults = [];
+    renderBulkTable([]);
+    return;
+  }
+
   const lines = els.bulkInput.value
     .split(/\r?\n/)
     .map((v) => v.trim())
@@ -329,9 +566,19 @@ function calcBulk() {
     const item = parseCsvLine(line);
     if (!item) continue;
 
-    const areaM2 = Number.isFinite(item.areaM2Raw) && item.areaM2Raw > 0
+    const areaFromWH = Number.isFinite(item.widthMm) && Number.isFinite(item.heightMm)
+      ? (item.widthMm * item.heightMm) / 1_000_000
+      : NaN;
+
+    const baseAreaM2 = Number.isFinite(item.areaM2Raw) && item.areaM2Raw > 0
       ? item.areaM2Raw
-      : (item.widthMm * item.heightMm) / 1_000_000;
+      : areaFromWH;
+
+    const normalized = normalizeRoomDimensions({
+      widthMm: item.widthMm,
+      heightMm: item.heightMm,
+      areaM2: baseAreaM2,
+    });
 
     const lux = Number.isFinite(item.luxRaw) && item.luxRaw > 0 ? item.luxRaw : common.targetLux;
 
@@ -341,14 +588,15 @@ function calcBulk() {
         lux,
         lumens: common.lumens,
         maintenanceFactor: common.maintenanceFactor,
-        widthMm: item.widthMm,
-        heightMm: item.heightMm,
-        areaM2,
+        widthMm: normalized.widthMm,
+        heightMm: normalized.heightMm,
+        areaM2: normalized.areaM2,
+        uMode: common.uMode,
       });
 
       rows.push({
         name: item.name,
-        areaM2,
+        areaM2: normalized.areaM2,
         ri: result.ri,
         u: result.u,
         lux,
@@ -357,7 +605,7 @@ function calcBulk() {
     } catch (error) {
       rows.push({
         name: item.name,
-        areaM2,
+        areaM2: normalized.areaM2,
         ri: NaN,
         u: NaN,
         lux,
@@ -370,6 +618,12 @@ function calcBulk() {
   renderBulkTable(rows);
 }
 
+function appendCell(tr, value) {
+  const td = document.createElement("td");
+  td.textContent = String(value);
+  tr.appendChild(td);
+}
+
 function renderBulkTable(rows) {
   els.bulkTableBody.innerHTML = "";
   let total = 0;
@@ -379,14 +633,12 @@ function renderBulkTable(rows) {
     const isError = typeof row.count !== "number";
     if (!isError) total += row.count;
 
-    tr.innerHTML = `
-      <td>${row.name}</td>
-      <td>${Number.isFinite(row.areaM2) ? fmt(row.areaM2, 2) : "-"}</td>
-      <td>${Number.isFinite(row.ri) ? fmt(row.ri, 2) : "-"}</td>
-      <td>${Number.isFinite(row.u) ? fmt(row.u, 2) : "-"}</td>
-      <td>${Number.isFinite(row.lux) ? fmt(row.lux, 0) : "-"}</td>
-      <td>${isError ? row.count : row.count.toLocaleString("ko-KR")}</td>
-    `;
+    appendCell(tr, row.name);
+    appendCell(tr, Number.isFinite(row.areaM2) ? fmt(row.areaM2, 2) : "-");
+    appendCell(tr, Number.isFinite(row.ri) ? fmt(row.ri, 2) : "-");
+    appendCell(tr, Number.isFinite(row.u) ? fmt(row.u, 2) : "-");
+    appendCell(tr, Number.isFinite(row.lux) ? fmt(row.lux, 0) : "-");
+    appendCell(tr, isError ? row.count : row.count.toLocaleString("ko-KR"));
 
     els.bulkTableBody.appendChild(tr);
   }
@@ -675,15 +927,13 @@ function renderCadRooms(rows) {
     placedTotal += room.placedCount || 0;
 
     const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${room.name}</td>
-      <td>${room.layer || "-"}</td>
-      <td>${fmt(room.areaM2, 2)}</td>
-      <td>${fmt(room.ri, 2)}</td>
-      <td>${fmt(room.u, 2)}</td>
-      <td>${(room.recommendedCount || 0).toLocaleString("ko-KR")}</td>
-      <td>${(room.placedCount || 0).toLocaleString("ko-KR")}</td>
-    `;
+    appendCell(tr, room.name);
+    appendCell(tr, room.layer || "-");
+    appendCell(tr, fmt(room.areaM2, 2));
+    appendCell(tr, fmt(room.ri, 2));
+    appendCell(tr, fmt(room.u, 2));
+    appendCell(tr, (room.recommendedCount || 0).toLocaleString("ko-KR"));
+    appendCell(tr, (room.placedCount || 0).toLocaleString("ko-KR"));
     els.cadRoomTableBody.appendChild(tr);
   });
 
@@ -691,14 +941,80 @@ function renderCadRooms(rows) {
   els.cadPlacedTotal.textContent = placedTotal.toLocaleString("ko-KR");
 }
 
-async function ensureCadModule() {
-  if (cadState.module) return cadState.module;
-  if (typeof window.createModule !== "function") {
-    throw new Error("CAD 엔진(libdxfrw) 로딩에 실패했습니다. 새로고침 후 다시 시도해주세요.");
+const CAD_SCRIPT_URLS = [
+  "https://cdn.jsdelivr.net/npm/@mlightcad/libdxfrw-web@0.1.0/dist/libdxfrw.js",
+  "https://unpkg.com/@mlightcad/libdxfrw-web@0.1.0/dist/libdxfrw.js",
+];
+
+function loadScript(src, timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[data-cad-src=\"${src}\"]`);
+    if (existing) {
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener("error", () => reject(new Error(`failed: ${src}`)), { once: true });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    script.dataset.cadSrc = src;
+
+    const timer = setTimeout(() => {
+      script.remove();
+      reject(new Error(`timeout: ${src}`));
+    }, timeoutMs);
+
+    script.onload = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+
+    script.onerror = () => {
+      clearTimeout(timer);
+      script.remove();
+      reject(new Error(`failed: ${src}`));
+    };
+
+    document.head.appendChild(script);
+  });
+}
+
+async function ensureCadScriptLoaded() {
+  if (typeof window.createModule === "function") return;
+
+  let lastError;
+  for (const src of CAD_SCRIPT_URLS) {
+    try {
+      setCadStatus(`CAD 엔진 스크립트 로딩 중...\n- ${src}`);
+      await loadScript(src, 18000);
+      if (typeof window.createModule === "function") return;
+    } catch (error) {
+      lastError = error;
+    }
   }
 
+  throw new Error(
+    `CAD 엔진 스크립트를 불러오지 못했습니다. 네트워크/광고차단/보안앱 설정을 확인해주세요. ` +
+      `${lastError ? `(원인: ${lastError.message})` : ""}`,
+  );
+}
+
+async function ensureCadModule() {
+  if (cadState.module) return cadState.module;
+
+  await ensureCadScriptLoaded();
+
   setCadStatus("CAD 엔진 로딩 중...");
-  cadState.module = await window.createModule();
+
+  const timeoutMs = 25000;
+  cadState.module = await Promise.race([
+    window.createModule(),
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("CAD 엔진 초기화 시간이 초과되었습니다.")), timeoutMs);
+    }),
+  ]);
+
   return cadState.module;
 }
 
@@ -864,6 +1180,7 @@ function buildRoomFromPolyline(polylineInfo, roomIndex, layer, common, cadCfg) {
     widthMm,
     heightMm,
     areaM2,
+    uMode: common.uMode,
   });
 
   return {
@@ -1224,6 +1541,7 @@ function resetDefaults() {
   els.ksLevel.value = "std";
   els.targetLux.value = "400";
   els.fontStyle.value = "Standard";
+  els.uMode.value = "interp";
 
   els.roomWidth.value = "9000";
   els.roomHeight.value = "6000";
@@ -1251,12 +1569,38 @@ function resetDefaults() {
   cadState.placements = [];
 
   renderCadRooms([]);
+  drawSinglePreview(1, 1, 0);
   setCadStatus("CAD 파일을 업로드한 뒤 ‘방 자동 인식’을 실행하세요.");
+  validateAllInputs();
+}
+
+function setupCollapsibleCards() {
+  const cards = Array.from(document.querySelectorAll("main .card"));
+  cards.forEach((card) => {
+    const heading = card.querySelector(":scope > h2");
+    if (!heading) return;
+    heading.title = "클릭해서 접기/펼치기";
+    heading.addEventListener("click", () => {
+      card.classList.toggle("collapsed");
+    });
+  });
 }
 
 function bindEvents() {
-  els.applyKsBtn.addEventListener("click", applyKsLux);
+  els.applyKsBtn.addEventListener("click", () => {
+    applyKsLux();
+    calcSingle();
+    calcBulk();
+  });
   els.resetBtn.addEventListener("click", resetDefaults);
+
+  presetButtons.forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const presetName = button.dataset.preset;
+      applyPreset(presetName);
+    });
+  });
 
   els.calcSingleBtn.addEventListener("click", calcSingle);
   els.calcBulkBtn.addEventListener("click", calcBulk);
@@ -1265,8 +1609,47 @@ function bindEvents() {
   els.genLispBtn.addEventListener("click", generateLispCode);
   els.downloadLispBtn.addEventListener("click", downloadLisp);
 
-  els.ksClass.addEventListener("change", applyKsLux);
-  els.ksLevel.addEventListener("change", applyKsLux);
+  els.ksClass.addEventListener("change", () => {
+    applyKsLux();
+    calcSingle();
+    calcBulk();
+  });
+  els.ksLevel.addEventListener("change", () => {
+    applyKsLux();
+    calcSingle();
+    calcBulk();
+  });
+  els.uMode.addEventListener("change", () => {
+    calcSingle();
+    calcBulk();
+  });
+
+  const liveValidateInputs = Array.from(document.querySelectorAll("input[type='number'], textarea"));
+  liveValidateInputs.forEach((input) => {
+    input.addEventListener("input", () => {
+      if (input.type === "number") {
+        validateNumberInput(input);
+      }
+    });
+  });
+
+  const quickRecalcInputs = [
+    els.floorHeight,
+    els.lumens,
+    els.maintenanceFactor,
+    els.targetLux,
+    els.roomWidth,
+    els.roomHeight,
+    els.roomArea,
+  ];
+  quickRecalcInputs.forEach((input) => {
+    input.addEventListener("change", () => {
+      calcSingle();
+      calcBulk();
+    });
+  });
+
+  els.bulkInput.addEventListener("blur", calcBulk);
 
   els.cadFile.addEventListener("change", async () => {
     try {
@@ -1313,8 +1696,10 @@ function bindEvents() {
 
 (function init() {
   populateKsUi();
+  setupCollapsibleCards();
   bindEvents();
   applyKsLux();
+  validateAllInputs();
   calcSingle();
   calcBulk();
   generateLispCode();
