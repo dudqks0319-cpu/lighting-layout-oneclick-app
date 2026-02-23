@@ -280,9 +280,20 @@
           </details>
 
           <div class="actions">
-            <button id="cadAnalyzeBtn" class="btn-secondary">🔍 방 자동 인식</button>
-            <button id="cadLayoutBtn" class="btn-primary">⚡ 자동 배치</button>
-            <button id="cadExportBtn" class="btn-ghost">📥 결과 DXF 다운로드</button>
+            <button id="cadOneClickBtn" class="btn-primary btn-big">🚀 원클릭 전체 배치 (인식→계산→DXF)</button>
+          </div>
+
+          <div class="actions">
+            <button id="cadAnalyzeBtn" class="btn-secondary">🔍 1단계: 방 인식</button>
+            <button id="cadLayoutBtn" class="btn-primary">⚡ 2단계: 배치 계산</button>
+            <button id="cadExportBtn" class="btn-ghost">📥 3단계: DXF 다운로드</button>
+          </div>
+
+          <div id="cadProgressWrap" class="progress-wrap" style="display: none">
+            <div class="progress-bar">
+              <div id="cadProgressFill" class="progress-fill"></div>
+            </div>
+            <p id="cadProgressText" class="progress-text">준비 중...</p>
           </div>
 
           <pre id="cadStatus" class="output"></pre>
