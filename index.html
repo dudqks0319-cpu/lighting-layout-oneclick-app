@@ -106,6 +106,7 @@
         <div class="preview-wrap">
           <canvas id="singlePreview" width="640" height="320" aria-label="단일 실 조명 배치 미리보기"></canvas>
         </div>
+        <p class="hint">※ 미리보기는 개념도이며, 실제 CAD 자동배치 결과와 일부 다를 수 있습니다.</p>
       </section>
 
       <section class="card">
@@ -136,8 +137,8 @@
             <tbody></tbody>
             <tfoot>
               <tr>
-                <th colspan="5">총 추천 수량</th>
-                <th id="bulkTotal">0</th>
+                <th colspan="5" data-label="항목">총 추천 수량</th>
+                <th id="bulkTotal" data-label="값">0</th>
               </tr>
             </tfoot>
           </table>
@@ -150,6 +151,7 @@
           현재 입력값으로 기본값이 채워진 LISP를 생성합니다. AutoCAD에서
           <code>APPLOAD</code>로 불러와 <code>QQQ</code>(단일),
           <code>QQQALL</code>(다중 경계 일괄) 명령으로 실행하세요.
+          (이용률 계산 방식: 공통 설정의 선택값 반영)
         </p>
         <div class="actions">
           <button id="genLispBtn">LISP 생성</button>
@@ -235,9 +237,9 @@
             <tbody></tbody>
             <tfoot>
               <tr>
-                <th colspan="5">총합</th>
-                <th id="cadRecommendedTotal">0</th>
-                <th id="cadPlacedTotal">0</th>
+                <th colspan="5" data-label="항목">총합</th>
+                <th id="cadRecommendedTotal" data-label="추천">0</th>
+                <th id="cadPlacedTotal" data-label="배치">0</th>
               </tr>
             </tfoot>
           </table>
