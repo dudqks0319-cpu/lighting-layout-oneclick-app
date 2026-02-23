@@ -287,3 +287,50 @@ code {
     font-size: 12px;
   }
 }
+
+@media (max-width: 500px) {
+  table {
+    min-width: unset;
+  }
+
+  table thead {
+    display: none;
+  }
+
+  table tbody tr,
+  table tfoot tr {
+    display: block;
+    margin-bottom: 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px;
+    background: #0b1330;
+  }
+
+  table tbody td,
+  table tfoot th {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border: 0;
+    border-bottom: 1px dashed #26345d;
+    padding: 6px 4px;
+  }
+
+  table tbody td:last-child,
+  table tfoot th:last-child {
+    border-bottom: 0;
+  }
+
+  table tbody td::before,
+  table tfoot th::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-weight: 600;
+  }
+
+  table tfoot th {
+    color: var(--ok);
+  }
+}
